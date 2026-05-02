@@ -3,6 +3,7 @@ import cors from 'cors';
 import 'dotenv/config'
 import { auth } from './lib/auth.ts';
 import { toNodeHandler } from 'better-auth/node';
+
  
 const app = express();
 const port = 3000;
