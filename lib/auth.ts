@@ -1,15 +1,18 @@
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
-import prisma from "./prisma.js";
+import prisma from "./prisma.ts";
 
 const trustedOrigins = process.env.TRUSTED_ORIGINS?.split(",") || [];
 
 export const auth = betterAuth({
     database: prismaAdapter(prisma, {
-        provider: "postgresql", 
+        provider: "postgresql",
     }),
     emailAndPassword: {
         enabled: true,
+    },
+    user: {
+        deleteUser: { enabled: true }
     },
     trustedOrigins,
     baseURL: process.env.BETTER_AUTH_URL!,
@@ -21,7 +24,7 @@ export const auth = betterAuth({
                 attributes: {
                     httpOnly: true,
                     secure: process.env.NODE_ENV === "production",
-                    sameSite: "none",
+                    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
                     path: "/",
                 },
             },

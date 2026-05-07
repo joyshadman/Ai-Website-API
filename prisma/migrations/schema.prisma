@@ -1,47 +1,47 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
-  provider = "prisma-client-js"
-  output   = "../generated/prisma"
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
 }
 
 datasource db {
-  provider = "postgresql"
-  // url removed for Prisma 7 compatibility
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model User {
-  id            String    @id @default(uuid())
+  id            String @id
+  email         String
   name          String
-  totalcreation Int       @default(0)
-  emailverified Boolean   @default(false) // Changed from @default(now()) as this is a Boolean
-  credits       Int       @default(20)
+  totalCreation Int    @default(0)
+  credits       Int    @default(20)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
-
-  // relation
-  projects     WebsiteProject[]
-  sessions     Session[]
-  accounts     Account[]
+  emailVerified Boolean   @default(false)
+  
+  // Relations
+  projects WebsiteProject[]
+  sessions      Session[]
+  accounts      Account[]
   transactions Transaction[]
 
   @@map("user")
 }
 
 model WebsiteProject {
-  id                    String   @id @default(uuid())
+  id                    String  @id @default(uuid())
   name                  String
   initial_prompt        String
   current_code          String?
-  current_version_index String   @default("")
+  current_version_index String  @default("")
   userId                String
-  isPublished           Boolean  @default(false)
+  isPublished           Boolean @default(false)
 
   // Relations
   conversation Conversation[]
   versions     Version[]
-  user         User            @relation(fields: [userId], references: [id])
+  user         User           @relation(fields: [userId], references: [id])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -85,7 +85,7 @@ model Transaction {
   updatedAt DateTime @updatedAt
 
   // Relations
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Session {
