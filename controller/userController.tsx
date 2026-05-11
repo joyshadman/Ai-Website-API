@@ -18,7 +18,7 @@ export const getUserCredit = async (req: Request, res: Response) => {
     }
 }
 
-export const createProject = async (req: Request, res: Response) => {
+export const createUserProject = async (req: Request, res: Response) => {
     try {
         const { initial_prompt } = req.body;
         const userid = req.userId;
@@ -183,7 +183,42 @@ Return ONLY the enhanced prompt, nothing else. Make it detailed but concise (2-3
     }
 }
 
-// controller for getting user projects
+// controller for getting a user project
+
+export const getUserProject = async (req: Request, res: Response) => {
+    try {
+        const userid = req.userId;
+        if (!userid) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+
+        const { projectId } = req.params;
+
+        const project = await prisma.websiteProject.findUnique({
+            where: { id: projectId, userId: userid },
+            include: {
+                conversation: {
+                    orderBy: {
+                        timestamp: "asc"
+                    }
+                },
+                versions: {
+                    orderBy: {
+                        timestamp: "asc"
+                    }
+                }
+            }
+        });
+
+        res.json({ project });
+
+    } catch (error: any) {
+        console.error('Authentication error:', error);
+        res.status(500).json({ message: error.code || error.message });
+    }
+}
+
+// controller for getting all user project
 
 export const getUserProjects = async (req: Request, res: Response) => {
     try {
@@ -191,12 +226,44 @@ export const getUserProjects = async (req: Request, res: Response) => {
         if (!userid) {
             return res.status(401).json({ error: 'Unauthorized' });
         }
-        const user = await prisma.user.findUnique({
-            where: { id: userid },
-        });
-        res.json({ credit: user?.credit || 0 });
+
+        const projects = await prisma.websiteProject.findMany({
+            where: { userId: userid },
+            include: {
+                orderBy: {
+                    updateAt: "desc"
+                }
+            });
+
+        res.json({ projects });
+
     } catch (error: any) {
         console.error('Authentication error:', error);
-        res.status(401).json({ message: error.code || error.message });
+        res.status(500).json({ message: error.code || error.message });
+    }
+}
+
+// controller Function to Toggle project publish
+
+export const togglePublish = async (req: Request, res: Response) => {
+    try {
+        const userid = req.userId;
+        if (!userid) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+
+        const projects = await prisma.websiteProject.findMany({
+            where: { userId: userid },
+            include: {
+                    orderBy: {
+                        updateAt: "desc"
+                    }
+            });
+
+        res.json({ projects });
+
+    } catch (error: any) {
+        console.error('Authentication error:', error);
+        res.status(500).json({ message: error.code || error.message });
     }
 }
