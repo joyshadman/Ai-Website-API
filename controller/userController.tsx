@@ -13,8 +13,8 @@ export const getUserCredit = async (req: Request, res: Response) => {
         });
         res.json({ credit: user?.credit || 0 });
     } catch (error: any) {
-        console.error('Authentication error:', error);
-        res.status(401).json({ message: error.code || error.message });
+        console.error('Get credit error:', error);
+        res.status(500).json({ message: error.code || error.message });
     }
 }
 
@@ -61,7 +61,6 @@ export const createUserProject = async (req: Request, res: Response) => {
             data: { credit: { decrement: 5 } },
         });
 
-        // enhance user prompt
         const promptEnhanceResponse = await openai.chat.completions.create({
             model: 'z-ai/glm-4.5-air:free',
             messages: [
@@ -104,7 +103,6 @@ Return ONLY the enhanced prompt, nothing else. Make it detailed but concise (2-3
             }
         });
 
-        // generate website code
         const codeGenerationResponse = await openai.chat.completions.create({
             model: 'z-ai/glm-4.5-air:free',
             messages: [{
@@ -183,8 +181,6 @@ Return ONLY the enhanced prompt, nothing else. Make it detailed but concise (2-3
     }
 }
 
-// controller for getting a user project
-
 export const getUserProject = async (req: Request, res: Response) => {
     try {
         const userid = req.userId;
@@ -199,26 +195,28 @@ export const getUserProject = async (req: Request, res: Response) => {
             include: {
                 conversation: {
                     orderBy: {
-                        timestamp: "asc"
+                        timestamp: 'asc'
                     }
                 },
                 versions: {
                     orderBy: {
-                        timestamp: "asc"
+                        timestamp: 'asc'
                     }
                 }
             }
         });
 
+        if (!project) {
+            return res.status(404).json({ error: 'Project not found' });
+        }
+
         res.json({ project });
 
     } catch (error: any) {
-        console.error('Authentication error:', error);
+        console.error('Get project error:', error);
         res.status(500).json({ message: error.code || error.message });
     }
 }
-
-// controller for getting all user project
 
 export const getUserProjects = async (req: Request, res: Response) => {
     try {
@@ -227,23 +225,21 @@ export const getUserProjects = async (req: Request, res: Response) => {
             return res.status(401).json({ error: 'Unauthorized' });
         }
 
+        // FIX: orderBy must be at the top level, not inside include
         const projects = await prisma.websiteProject.findMany({
             where: { userId: userid },
-            include: {
-                orderBy: {
-                    updateAt: "desc"
-                }
-            });
+            orderBy: {
+                updateAt: 'desc'
+            }
+        });
 
         res.json({ projects });
 
     } catch (error: any) {
-        console.error('Authentication error:', error);
+        console.error('Get projects error:', error);
         res.status(500).json({ message: error.code || error.message });
     }
 }
-
-// controller Function to Toggle project publish
 
 export const togglePublish = async (req: Request, res: Response) => {
     try {
@@ -252,18 +248,33 @@ export const togglePublish = async (req: Request, res: Response) => {
             return res.status(401).json({ error: 'Unauthorized' });
         }
 
-        const projects = await prisma.websiteProject.findMany({
-            where: { userId: userid },
-            include: {
-                    orderBy: {
-                        updateAt: "desc"
-                    }
-            });
+        const { projectId } = req.params;
 
-        res.json({ projects });
+        const project = await prisma.websiteProject.findFirst({
+            where: { id: projectId, userId: userid },
+        });
+
+        if (!project) {
+            return res.status(404).json({ error: 'Project not found' });
+        }
+
+        const updatedProject = await prisma.websiteProject.update({
+            where: { id: projectId },
+            data: { ispublished: !project.ispublished },
+        });
+
+        res.json({
+            message: updatedProject.ispublished
+                ? 'Project published successfully'
+                : 'Project unpublished successfully'
+        });
 
     } catch (error: any) {
-        console.error('Authentication error:', error);
+        console.error('Toggle publish error:', error);
         res.status(500).json({ message: error.code || error.message });
     }
+};
+
+export const purchaseCredit = async (req: Request, res: Response) => {
+
 }
