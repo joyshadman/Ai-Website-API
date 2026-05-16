@@ -273,3 +273,61 @@ export const getPublishedProjects = async (req: Request, res: Response) => {
 }
 
 // get a single project by id
+
+export const getProjectById = async (req: Request, res: Response) => {
+    try {
+        const { projectId } = req.params;
+
+        const project = await prisma.websiteproject.findFirst({
+            where: { id: projectId },
+        });
+
+        if (!project || project.ispublished === false || project.current_code ) {
+            return res.status(404).json({ error: 'Project not found' });
+        }
+
+        res.json({ code: project.current_code });
+    } catch (error: any) {
+        console.log(error.code || error.message);
+        res.status(500).json({ message: error.message});
+    }
+
+}
+//  Controller to save project 
+
+export const saveProjectCode = async (req: Request, res: Response) => {
+    try {
+        const userid = req.userId;
+        const { projectId } = req.params;
+        const { code } = req.body;
+        
+        if (!userid) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+        
+        if (!code) {
+            return res.status(400).json({ error: 'Code is required' });
+        }
+
+        const project = await prisma.websiteproject.findUnique({
+            where: { id: projectId, userid },
+        });
+
+        if (!project) {
+            return res.status(404).json({ error: 'Project not found' });
+        
+        }
+
+        await prisma.websiteproject.update({
+            where: { id: projectId, userid },
+            data: {current_code: code, current_version_index: ''}
+        });
+
+        
+        res.json({ message: 'Project code saved successfully' });
+    } catch (error: any) {
+        console.log(error.code || error.message);
+        res.status(500).json({ message: error.message});
+    }
+
+}

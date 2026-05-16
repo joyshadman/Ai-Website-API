@@ -4,6 +4,7 @@ import 'dotenv/config'
 import { auth } from './lib/auth.ts';
 import { toNodeHandler } from 'better-auth/node';
 import userRoutes from 'routes/userRoutes.js';
+import projectRoutes from 'routes/ProjectRoutes.js';
 
 
 const app = express();
@@ -23,6 +24,7 @@ app.get('/', (req, res) => {
 });
 
 app.use('/api/user', userRoutes);
+app.use('/api/project', projectRoutes);
 
 app.listen(port, () => {
   console.log(`Server is running on http://localhost:${port}`);
