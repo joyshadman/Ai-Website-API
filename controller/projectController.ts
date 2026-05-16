@@ -171,7 +171,7 @@ export const rollbackToVersion = async (req: Request, res: Response) => {
         }
         const { projectId, versionId } = req.params;
 
-        const project = await prisma.websiteproject.findUnique({
+        const project = await prisma.websiteProject.findUnique({
             where: { id: projectId, userid },
             include: { versions: true },
         });
@@ -236,7 +236,7 @@ export const getProjectPreview = async (req: Request, res: Response) => {
             return res.status(401).json({ error: 'Unauthorized' });
         }
 
-        const project = await prisma.websiteproject.findFirst({
+        const project = await prisma.websiteProject.findFirst({
             where: { id: projectId, userid },
             include: { versions: true },
         });
@@ -259,7 +259,7 @@ export const getPublishedProjects = async (req: Request, res: Response) => {
     try {
 
 
-        const projects = await prisma.websiteproject.findMany({
+        const projects = await prisma.websiteProject.findMany({
             where: { ispublished: true },
             include: { user : true },
         });
@@ -278,7 +278,7 @@ export const getProjectById = async (req: Request, res: Response) => {
     try {
         const { projectId } = req.params;
 
-        const project = await prisma.websiteproject.findFirst({
+        const project = await prisma.websiteProject.findFirst({
             where: { id: projectId },
         });
 
@@ -309,7 +309,7 @@ export const saveProjectCode = async (req: Request, res: Response) => {
             return res.status(400).json({ error: 'Code is required' });
         }
 
-        const project = await prisma.websiteproject.findUnique({
+        const project = await prisma.websiteProject.findUnique({
             where: { id: projectId, userid },
         });
 
@@ -318,7 +318,7 @@ export const saveProjectCode = async (req: Request, res: Response) => {
         
         }
 
-        await prisma.websiteproject.update({
+        await prisma.websiteProject.update({
             where: { id: projectId, userid },
             data: {current_code: code, current_version_index: ''}
         });
