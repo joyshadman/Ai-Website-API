@@ -1,15 +1,16 @@
 import { fromNodeHeaders } from 'better-auth/node';
-import { Request, Response, NextFunction } from 'express';
+import express, { type Request, type Response, type NextFunction } from 'express';
+import { auth } from '../lib/auth.ts';
 
 export const protect = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const session = await req.api.getSession({
-            Headers: fromNodeHeaders(req.headers),
+        const session = await auth.api.getSession({
+            headers: fromNodeHeaders(req.headers),
         });
-        if (!session || !session.user) {
+        if (!session?.user) {
             return res.status(401).json({ error: 'Unauthorized' });
         }
-        req.userId = session.userId;
+        req.userId = session.user.id;
 
         next();
     } catch (error: any) {

@@ -1,10 +1,7 @@
-import { Request, Response } from "express";
-import prisma from 'lib/prisma.js';
-import openai from 'config/openai.js';
+import express, { type Request, type Response } from "express";
+import prisma from '../lib/prisma.js';
+import openai from '../config/openai.js';
 import { versions } from "node:process";
-import { role } from "better-auth/client";
-
-
 // controller fucntion to make Revesion
 
 export const makeRevision = async (req: Request, res: Response) => {
@@ -22,7 +19,7 @@ export const makeRevision = async (req: Request, res: Response) => {
             return res.status(401).json({ error: 'Unauthorized' });
         }
 
-        if (user.credit < 5) {
+        if (user.credits < 5) {
             return res.status(403).json({ error: 'User cannot make a revision with insufficient credit ' });
         }
 
@@ -49,7 +46,7 @@ export const makeRevision = async (req: Request, res: Response) => {
 
         await prisma.user.update({
             where: { id: userid },
-            data: { credit: { decrement: 5 } },
+            data: { credits: { decrement: 5 } },
         });
 
         // Enhance User prompt 
@@ -154,7 +151,7 @@ Apply the requested changes while maintaining the Tailwind CSS styling approach.
     } catch (error: any) {
         await prisma.user.update({
             where: { id: userid },
-            data: { credit: { decrement: 5 } },
+            data: { credits: { decrement: 5 } },
         });
         console.error('Get credit error:', error);
         res.status(500).json({ message: error.code || error.message });
@@ -211,19 +208,35 @@ export const rollbackToVersion = async (req: Request, res: Response) => {
 export const deleteProject = async (req: Request, res: Response) => {
     try {
         const userid = req.userId;
-        const { projectId, versionId } = req.params;
+        const { projectId } = req.params;
 
-       await prisma.websiteproject.delete({
-            where: { id: projectId, userid },
+        if (!userid) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+
+        // First verify the project belongs to this user
+        const project = await prisma.websiteProject.findFirst({
+            where: { id: projectId, userId: userid },
+        });
+
+        if (!project) {
+            return res.status(404).json({ error: 'Project not found' });
+        }
+
+        // Delete related records first (conversations, versions) to avoid FK constraint errors
+        await prisma.conversation.deleteMany({ where: { projectId } });
+        await prisma.version.deleteMany({ where: { projectId } });
+
+        await prisma.websiteProject.delete({
+            where: { id: projectId },
         });
 
         res.json({ message: 'Project deleted successfully' });
     } catch (error: any) {
-        console.log(error.code || error.message);
-        res.status(500).json({ message: error.message});
+        console.error('Delete project error:', error);
+        res.status(500).json({ message: error.message });
     }
-
-} 
+}
 
 // Controller for getting project code for preview
 
@@ -260,7 +273,7 @@ export const getPublishedProjects = async (req: Request, res: Response) => {
 
 
         const projects = await prisma.websiteProject.findMany({
-            where: { ispublished: true },
+            where: { isPublished: true },
             include: { user : true },
         });
 
@@ -282,7 +295,7 @@ export const getProjectById = async (req: Request, res: Response) => {
             where: { id: projectId },
         });
 
-        if (!project || project.ispublished === false || project.current_code ) {
+        if (!project || project.isPublished === false || project.current_code ) {
             return res.status(404).json({ error: 'Project not found' });
         }
 

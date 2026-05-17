@@ -9,9 +9,14 @@ import projectRoutes from './routes/ProjectRoutes.js';
 
 const app = express();
 const port = 3000;
+const trustedOrigins = (process.env.TRUSTED_ORIGINS || 'http://localhost:5173')
+  .split(',')
+  .map((origin) => origin.trim().replace(/^["']|["']$/g, ''))
+  .filter(Boolean);
+
 const corsOptions = {
-  origin: (process.env.TRUSTED_ORIGINS || '').split(',') || [''],
-  credentials: true
+  origin: trustedOrigins,
+  credentials: true,
 };
 
 app.use(cors(corsOptions));

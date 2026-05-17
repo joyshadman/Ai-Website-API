@@ -15,6 +15,11 @@
     // "types": ["node"],
     // and npm install -D @types/node
 
+    // Path Mapping (Merged cleanly without baseUrl)
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+
     // Other Outputs
     "sourceMap": true,
     "declaration": true,
@@ -39,12 +44,6 @@
     "isolatedModules": true,
     "noUncheckedSideEffectImports": true,
     "moduleDetection": "force",
-    "skipLibCheck": true,
-  },
-    "compilerOptions": {
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["./src/*"]
-    }
+    "skipLibCheck": true
   }
 }

@@ -1,65 +1,37 @@
-import openai from 'config/openai.js';
-import { Request, Response } from 'express';
-import prisma from 'lib/prisma.js';
+import openai from '../config/openai.js';
+import express, { type Request, type Response } from 'express';
+import prisma from '../lib/prisma.js';
 
-export const getUserCredit = async (req: Request, res: Response) => {
+const cleanCode = (code: string) => code
+    .replace(/```[a-z]*\n?/gi, '')
+    .replace(/```$/g, '')
+    .trim();
+
+async function refundCredits(userId: string) {
     try {
-        const userid = req.userId;
-        if (!userid) {
-            return res.status(401).json({ error: 'Unauthorized' });
-        }
-        const user = await prisma.user.findUnique({
-            where: { id: userid },
+        await prisma.user.update({
+            where: { id: userId },
+            data: { credits: { increment: 5 } },
         });
-        res.json({ credit: user?.credit || 0 });
-    } catch (error: any) {
-        console.error('Get credit error:', error);
-        res.status(500).json({ message: error.code || error.message });
+    } catch (refundError) {
+        console.error('Failed to refund credits:', refundError);
     }
 }
 
-export const createUserProject = async (req: Request, res: Response) => {
+async function generateProjectWebsite(
+    projectId: string,
+    initial_prompt: string,
+    userId: string
+) {
     try {
-        const { initial_prompt } = req.body;
-        const userid = req.userId;
+        const existing = await prisma.websiteProject.findFirst({
+            where: { id: projectId, userId },
+            select: { current_code: true },
+        });
 
-        if (!userid) {
-            return res.status(401).json({ error: 'Unauthorized' });
+        if (!existing || existing.current_code) {
+            return;
         }
-
-        const user = await prisma.user.findUnique({
-            where: { id: userid },
-        });
-
-        if (!user || user.credit < 5) {
-            return res.status(403).json({ error: 'Insufficient credit' });
-        }
-
-        const project = await prisma.websiteProject.create({
-            data: {
-                name: initial_prompt.length > 20 ? initial_prompt.substring(0, 47) + '...' : initial_prompt,
-                initial_prompt,
-                userId: userid
-            }
-        });
-
-        await prisma.user.update({
-            where: { id: userid },
-            data: { totalcreation: { increment: 1 } },
-        });
-
-        await prisma.conversation.create({
-            data: {
-                role: 'user',
-                content: initial_prompt,
-                projectId: project.id
-            }
-        });
-
-        await prisma.user.update({
-            where: { id: userid },
-            data: { credit: { decrement: 5 } },
-        });
 
         const promptEnhanceResponse = await openai.chat.completions.create({
             model: 'z-ai/glm-4.5-air:free',
@@ -81,8 +53,8 @@ Return ONLY the enhanced prompt, nothing else. Make it detailed but concise (2-3
                 {
                     role: 'user',
                     content: initial_prompt,
-                }
-            ]
+                },
+            ],
         });
 
         const enhancedPrompt = promptEnhanceResponse.choices[0].message.content;
@@ -91,16 +63,16 @@ Return ONLY the enhanced prompt, nothing else. Make it detailed but concise (2-3
             data: {
                 role: 'assistant',
                 content: `I enhanced the prompt to: ${enhancedPrompt}`,
-                projectId: project.id
-            }
+                projectId,
+            },
         });
 
         await prisma.conversation.create({
             data: {
                 role: 'assistant',
-                content: `now generating the website...`,
-                projectId: project.id
-            }
+                content: 'Now generating the website...',
+                projectId,
+            },
         });
 
         const codeGenerationResponse = await openai.chat.completions.create({
@@ -130,54 +102,135 @@ Return ONLY the enhanced prompt, nothing else. Make it detailed but concise (2-3
     3. You MUST NOT include internal thoughts, explanations, analysis, comments, or markdown.
     4. Do NOT include markdown, explanations, notes, or code fences.
 
-    The HTML should be complete and ready to render as-is with Tailwind CSS.`
+    The HTML should be complete and ready to render as-is with Tailwind CSS.`,
             }, {
                 role: 'user',
-                content: enhancedPrompt || ''
-            }]
+                content: enhancedPrompt || '',
+            }],
         });
-
-        const cleanCode = (code: string) => code
-            .replace(/```[a-z]*\n?/gi, '')
-            .replace(/```$/g, '')
-            .trim();
 
         const code = codeGenerationResponse.choices[0].message.content || '';
 
-        const version = await prisma.projectVersion.create({
+        const version = await prisma.version.create({
             data: {
                 code: cleanCode(code),
                 description: 'Initial version',
-                projectId: project.id
-            }
+                projectId,
+            },
         });
 
         await prisma.conversation.create({
             data: {
                 role: 'assistant',
-                content: `I generated the website! You can now preview it and if you want any changes just ask me.`,
-                projectId: project.id
-            }
+                content: 'I generated the website! You can now preview it and if you want any changes just ask me.',
+                projectId,
+            },
         });
 
         await prisma.websiteProject.update({
-            where: { id: project.id },
+            where: { id: projectId },
             data: {
                 current_code: cleanCode(code),
-                current_version: version.id
-            }
+                current_version_index: version.id,
+            },
         });
+    } catch (error) {
+        console.error('Background generation error:', error);
+
+        await prisma.conversation.create({
+            data: {
+                role: 'assistant',
+                content: 'Generation failed. Your credits have been refunded. Please try again.',
+                projectId,
+            },
+        }).catch(() => undefined);
+
+        await refundCredits(userId);
+    }
+}
+
+export const getUserCredit = async (req: Request, res: Response) => {
+    try {
+        const userid = req.userId;
+        if (!userid) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+        const user = await prisma.user.findUnique({
+            where: { id: userid },
+            select: { credits: true },
+        });
+        res.json({ credits: user?.credits ?? 0 });
+    } catch (error: any) {
+        console.error('Get credit error:', error);
+        res.status(500).json({ message: error.code || error.message });
+    }
+}
+
+export const createUserProject = async (req: Request, res: Response) => {
+    const userid = req.userId;
+    let creditsDeducted = false;
+
+    try {
+        const { initial_prompt } = req.body;
+
+        if (!userid) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+
+        if (!initial_prompt?.trim()) {
+            return res.status(400).json({ error: 'Please provide a prompt.' });
+        }
+
+        const user = await prisma.user.findUnique({
+            where: { id: userid },
+        });
+
+        if (!user || user.credits < 5) {
+            return res.status(403).json({ error: 'Insufficient credit' });
+        }
+
+        const project = await prisma.websiteProject.create({
+            data: {
+                name: initial_prompt.length > 50
+                    ? initial_prompt.substring(0, 47) + '...'
+                    : initial_prompt,
+                initial_prompt: initial_prompt.trim(),
+                userId: userid,
+            },
+        });
+
+        await prisma.user.update({
+            where: { id: userid },
+            data: { totalcreation: { increment: 1 } },
+        });
+
+        await prisma.conversation.create({
+            data: {
+                role: 'user',
+                content: initial_prompt.trim(),
+                projectId: project.id,
+            },
+        });
+
+        await prisma.user.update({
+            where: { id: userid },
+            data: { credits: { decrement: 5 } },
+        });
+        creditsDeducted = true;
 
         res.json({ projectId: project.id });
 
+        void generateProjectWebsite(project.id, initial_prompt.trim(), userid);
     } catch (error: any) {
-        await prisma.user.update({
-            where: { id: req.userId },
-            data: { credit: { increment: 5 } },
-        });
+        if (creditsDeducted && userid) {
+            await refundCredits(userid);
+        }
 
         console.error('Project creation error:', error);
-        res.status(500).json({ message: error.code || error.message });
+
+        if (!res.headersSent) {
+            res.status(500).json({ message: error.message || 'Failed to create project' });
+        }
     }
 }
 
@@ -190,7 +243,7 @@ export const getUserProject = async (req: Request, res: Response) => {
 
         const { projectId } = req.params;
 
-        const project = await prisma.websiteProject.findUnique({
+        const project = await prisma.websiteProject.findFirst({
             where: { id: projectId, userId: userid },
             include: {
                 conversation: {
@@ -229,7 +282,7 @@ export const getUserProjects = async (req: Request, res: Response) => {
         const projects = await prisma.websiteProject.findMany({
             where: { userId: userid },
             orderBy: {
-                updateAt: 'desc'
+                updatedAt: 'desc'
             }
         });
 
@@ -260,11 +313,11 @@ export const togglePublish = async (req: Request, res: Response) => {
 
         const updatedProject = await prisma.websiteProject.update({
             where: { id: projectId },
-            data: { ispublished: !project.ispublished },
+            data: { isPublished: !project.isPublished },
         });
 
         res.json({
-            message: updatedProject.ispublished
+            message: updatedProject.isPublished
                 ? 'Project published successfully'
                 : 'Project unpublished successfully'
         });
