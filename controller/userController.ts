@@ -34,7 +34,7 @@ async function generateProjectWebsite(
         }
 
         const promptEnhanceResponse = await openai.chat.completions.create({
-            model: 'z-ai/glm-4.5-air:free',
+            model: 'gpt-oss-120b',
             messages: [
                 {
                     role: 'system',
@@ -57,7 +57,8 @@ Return ONLY the enhanced prompt, nothing else. Make it detailed but concise (2-3
             ],
         });
 
-        const enhancedPrompt = promptEnhanceResponse.choices[0].message.content;
+        // FIX (TS2532): choices[0] is possibly undefined — use optional chaining + fallback
+        const enhancedPrompt = promptEnhanceResponse.choices[0]?.message?.content ?? initial_prompt;
 
         await prisma.conversation.create({
             data: {
@@ -76,7 +77,7 @@ Return ONLY the enhanced prompt, nothing else. Make it detailed but concise (2-3
         });
 
         const codeGenerationResponse = await openai.chat.completions.create({
-            model: 'z-ai/glm-4.5-air:free',
+            model: 'gpt-oss-120b',
             messages: [{
                 role: 'system',
                 content: `You are an expert web developer. Create a complete, production-ready, single-page website based on this request: "${enhancedPrompt}"
@@ -105,11 +106,12 @@ Return ONLY the enhanced prompt, nothing else. Make it detailed but concise (2-3
     The HTML should be complete and ready to render as-is with Tailwind CSS.`,
             }, {
                 role: 'user',
-                content: enhancedPrompt || '',
+                content: enhancedPrompt,
             }],
         });
 
-        const code = codeGenerationResponse.choices[0].message.content || '';
+        // FIX (TS2532): choices[0] is possibly undefined — use optional chaining + fallback
+        const code = codeGenerationResponse.choices[0]?.message?.content ?? '';
 
         const version = await prisma.version.create({
             data: {
@@ -242,9 +244,13 @@ export const getUserProject = async (req: Request, res: Response) => {
         }
 
         const { projectId } = req.params;
+        // FIX (TS2412): Extract as plain string before passing to Prisma where clause.
+        // req.params values are typed as string | string[] | undefined, but Prisma's
+        // StringFilter only accepts string | StringFilter | undefined.
+        const projectIdStr = typeof projectId === 'string' ? projectId : String(projectId ?? '');
 
         const project = await prisma.websiteProject.findFirst({
-            where: { id: projectId, userId: userid },
+            where: { id: projectIdStr, userId: userid },
             include: {
                 conversation: {
                     orderBy: {
@@ -278,7 +284,6 @@ export const getUserProjects = async (req: Request, res: Response) => {
             return res.status(401).json({ error: 'Unauthorized' });
         }
 
-        // FIX: orderBy must be at the top level, not inside include
         const projects = await prisma.websiteProject.findMany({
             where: { userId: userid },
             orderBy: {
@@ -302,9 +307,11 @@ export const togglePublish = async (req: Request, res: Response) => {
         }
 
         const { projectId } = req.params;
+        // FIX (TS2412): Extract as plain string before passing to Prisma where clause
+        const projectIdStr = typeof projectId === 'string' ? projectId : String(projectId ?? '');
 
         const project = await prisma.websiteProject.findFirst({
-            where: { id: projectId, userId: userid },
+            where: { id: projectIdStr, userId: userid },
         });
 
         if (!project) {
@@ -312,7 +319,7 @@ export const togglePublish = async (req: Request, res: Response) => {
         }
 
         const updatedProject = await prisma.websiteProject.update({
-            where: { id: projectId },
+            where: { id: projectIdStr },
             data: { isPublished: !project.isPublished },
         });
 
