@@ -1,14 +1,14 @@
 import express from 'express';
 import cors from 'cors';
-import 'dotenv/config'
+import 'dotenv/config';
 import { auth } from './lib/auth.js';
 import { toNodeHandler } from 'better-auth/node';
 import userRoutes from './routes/userRoutes.js';
 import projectRoutes from './routes/ProjectRoutes.js';
 
-
 const app = express();
-const port = 3000;
+const port = Number(process.env.PORT) || 3000;
+
 const trustedOrigins = (process.env.TRUSTED_ORIGINS || 'http://localhost:5173')
   .split(',')
   .map((origin) => origin.trim().replace(/^["']|["']$/g, ''))
@@ -31,6 +31,10 @@ app.get('/', (req, res) => {
 app.use('/api/user', userRoutes);
 app.use('/api/project', projectRoutes);
 
-app.listen(port, () => {
-  console.log(`Server is running on http://localhost:${port}`);
-});
+export default app;
+
+if (!process.env.VERCEL) {
+  app.listen(port, () => {
+    console.log(`Server is running on http://localhost:${port}`);
+  });
+}

@@ -7,6 +7,9 @@ const trustedOrigins = (process.env.TRUSTED_ORIGINS || "http://localhost:5173")
     .map((origin) => origin.trim().replace(/^["']|["']$/g, ""))
     .filter(Boolean);
 
+/** Cross-site cookies only when API and frontend are on different Vercel origins. */
+const crossOriginCookies = Boolean(process.env.VERCEL);
+
 export const auth = betterAuth({
     database: prismaAdapter(prisma, {
         provider: "postgresql",
@@ -26,8 +29,8 @@ export const auth = betterAuth({
                 name: "Auth_token",
                 attributes: {
                     httpOnly: true,
-                    secure: process.env.NODE_ENV === "production",
-                    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+                    secure: crossOriginCookies,
+                    sameSite: crossOriginCookies ? "none" : "lax",
                     path: "/",
                 },
             },
