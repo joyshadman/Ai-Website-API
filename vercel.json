@@ -1,5 +1,7 @@
 {
   "version": 2,
+  "buildCommand": "prisma generate",
+  "installCommand": "npm install",
   "builds": [{ "src": "server.ts", "use": "@vercel/node" }],
   "routes": [{ "src": "/(.*)", "dest": "server.ts" }]
 }
