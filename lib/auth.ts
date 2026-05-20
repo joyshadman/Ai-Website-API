@@ -4,32 +4,38 @@ import prisma from "./prisma.js";
 import { getTrustedOrigins } from "./cors.js";
 import { getBetterAuthSecret, getBetterAuthUrl } from "./env.js";
 
-const crossOriginCookies = Boolean(process.env.VERCEL);
+let authInstance: ReturnType<typeof betterAuth> | null = null;
 
-export const auth = betterAuth({
+export function getAuth() {
+  if (authInstance) return authInstance;
+
+  authInstance = betterAuth({
     database: prismaAdapter(prisma, {
-        provider: "postgresql",
+      provider: "postgresql",
     }),
     emailAndPassword: {
-        enabled: true,
+      enabled: true,
     },
     user: {
-        deleteUser: { enabled: true }
+      deleteUser: { enabled: true },
     },
     trustedOrigins: getTrustedOrigins(),
     baseURL: getBetterAuthUrl(),
     secret: getBetterAuthSecret(),
     advanced: {
-        cookies: {
-            session_token: {
-                name: "Auth_token",
-                attributes: {
-                    httpOnly: true,
-                    secure: crossOriginCookies,
-                    sameSite: crossOriginCookies ? "none" : "lax",
-                    path: "/",
-                },
-            },
+      cookies: {
+        session_token: {
+          name: "Auth_token",
+          attributes: {
+            httpOnly: true,
+            secure: Boolean(process.env.VERCEL),
+            sameSite: process.env.VERCEL ? "none" : "lax",
+            path: "/",
+          },
         },
+      },
     },
-});
+  });
+
+  return authInstance;
+}

@@ -7,7 +7,9 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "nodemon --exec tsx server.ts",
     "start": "tsx server.ts",
-    "build": "prisma generate && tsc"
+    "build": "prisma generate && tsc",
+    "postinstall": "prisma generate",
+    "vercel-build": "prisma generate"
   },
   "keywords": [],
   "author": "",
@@ -23,13 +25,14 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "nodemon": "^3.1.14",
-    "openai": "^6.37.0"
+    "openai": "^6.37.0",
+    "pg": "^8.16.0",
+    "prisma": "^7.7.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/node": "^25.6.0",
     "@types/pg": "^8.20.0",
-    "prisma": "^7.7.0",
     "tsx": "^4.22.1",
     "typescript": "^6.0.2"
   }

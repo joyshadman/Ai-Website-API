@@ -83,6 +83,16 @@ out
 dist
 .output
 
+# Compiled output — causes ERR_INTERNAL_ASSERTION if deployed alongside .ts
+**/*.js.map
+controller/**/*.js
+routes/**/*.js
+middlewares/**/*.js
+config/**/*.js
+lib/**/*.js
+server.js
+prisma.config.js
+
 # Gatsby files
 .cache/
 # Comment in the public line in if your project uses Gatsby and not Next.js
