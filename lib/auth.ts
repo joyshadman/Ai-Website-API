@@ -4,9 +4,11 @@ import prisma from "./prisma.js";
 import { getTrustedOrigins } from "./cors.js";
 import { getBetterAuthSecret, getBetterAuthUrl } from "./env.js";
 
-let authInstance: ReturnType<typeof betterAuth> | null = null;
+type AuthInstance = ReturnType<typeof betterAuth>;
 
-export function getAuth() {
+let authInstance: AuthInstance | null = null;
+
+export function getAuth(): AuthInstance | null {
   if (authInstance) return authInstance;
 
   authInstance = betterAuth({
@@ -35,7 +37,7 @@ export function getAuth() {
         },
       },
     },
-  });
+  }) as unknown as AuthInstance; // ← double-cast through unknown
 
   return authInstance;
 }

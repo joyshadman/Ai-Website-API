@@ -52,10 +52,15 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
-app.all("/api/auth/*splat", async (req, res, next) => {
+app.all("/api/auth/*splat", async (req, res) => {
   try {
     const { getAuth } = await import("./auth.js");
-    return toNodeHandler(getAuth())(req, res, next);
+    const auth = getAuth();
+    if (!auth) {
+      res.status(503).json({ error: "Auth not configured", env: getEnvStatus() });
+      return;
+    }
+    return toNodeHandler(auth)(req, res);
   } catch (err) {
     console.error("Auth handler error:", err);
     const message = err instanceof Error ? err.message : "Auth not configured";
