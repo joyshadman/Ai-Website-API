@@ -203,7 +203,7 @@ export const createUserProject = async (req: Request, res: Response) => {
 
         await prisma.user.update({
             where: { id: userid },
-            data: { totalcreation: { increment: 1 } },
+            data: { totalCreation: { increment: 1 } },
         });
 
         await prisma.conversation.create({
