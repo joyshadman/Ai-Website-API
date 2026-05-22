@@ -10,7 +10,7 @@ let authInstance: AuthInstance | null = null;
 
 export function getAuth(): AuthInstance | null {
   if (authInstance) return authInstance;
-
+  
   authInstance = betterAuth({
     database: prismaAdapter(prisma, {
       provider: "postgresql",
@@ -37,7 +37,7 @@ export function getAuth(): AuthInstance | null {
         },
       },
     },
-  }) as unknown as AuthInstance; // ← double-cast through unknown
+  }) as unknown as AuthInstance;
 
   return authInstance;
 }
