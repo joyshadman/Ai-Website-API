@@ -4,8 +4,8 @@ export function getBetterAuthUrl(): string {
   if (process.env.BETTER_AUTH_URL?.trim()) {
     return process.env.BETTER_AUTH_URL.trim().replace(/\/$/, "");
   }
-  if (process.env.VERCEL) return PRODUCTION_API;
-  return "http://localhost:5173";
+  if (process.env.NODE_ENV === "production") return PRODUCTION_API;
+  return "http://localhost:3000"; 
 }
 
 export function getBetterAuthSecret(): string {

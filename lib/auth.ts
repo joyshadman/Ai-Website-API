@@ -30,8 +30,8 @@ export function getAuth(): AuthInstance | null {
           name: "Auth_token",
           attributes: {
             httpOnly: true,
-            secure: Boolean(process.env.VERCEL),
-            sameSite: process.env.VERCEL ? "none" : "lax",
+            secure: process.env.NODE_ENV === "production",
+            sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
             path: "/",
           },
         },
