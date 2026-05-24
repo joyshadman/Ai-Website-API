@@ -57,8 +57,8 @@ model Conversation {
   content   String
   timestamp DateTime @default(now())
   projectId String
+  isSaved   Boolean  @default(false)
 
-  // Relations
   project WebsiteProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }
 

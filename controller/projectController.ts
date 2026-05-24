@@ -527,3 +527,60 @@ Modify the existing website code according to the request while keeping it fully
         res.status(500).json({ message: error.code || error.message });
     }
 };
+
+export const toggleSaveMessage = async (req: Request, res: Response) => {
+    try {
+        const userid = req.userId;
+        if (!userid) return res.status(401).json({ error: 'Unauthorized' });
+
+        const { conversationId } = req.params;
+        const conversationIdStr = typeof conversationId === 'string'
+            ? conversationId : String(conversationId ?? '');
+
+        const message = await prisma.conversation.findFirst({
+            where: {
+                id: conversationIdStr,
+                project: { userId: userid },
+            },
+        });
+
+        if (!message) return res.status(404).json({ error: 'Message not found' });
+
+        const updated = await prisma.conversation.update({
+            where: { id: conversationIdStr },
+            data: { isSaved: !message.isSaved },
+        });
+
+        res.json({ isSaved: updated.isSaved });
+    } catch (error: any) {
+        console.error('Toggle save message error:', error);
+        res.status(500).json({ message: error.code || error.message });
+    }
+};
+
+export const getSavedMessages = async (req: Request, res: Response) => {
+    try {
+        const userid = req.userId;
+        if (!userid) return res.status(401).json({ error: 'Unauthorized' });
+
+        const { projectId } = req.params;
+        const projectIdStr = typeof projectId === 'string'
+            ? projectId : String(projectId ?? '');
+
+        const project = await prisma.websiteProject.findFirst({
+            where: { id: projectIdStr, userId: userid },
+        });
+
+        if (!project) return res.status(404).json({ error: 'Project not found' });
+
+        const saved = await prisma.conversation.findMany({
+            where: { projectId: projectIdStr, isSaved: true },
+            orderBy: { timestamp: 'desc' },
+        });
+
+        res.json({ saved });
+    } catch (error: any) {
+        console.error('Get saved messages error:', error);
+        res.status(500).json({ message: error.code || error.message });
+    }
+};

@@ -18,7 +18,7 @@
   "dependencies": {
     "@better-auth-ui/heroui": "^1.6.1",
     "@prisma/adapter-pg": "^7.7.0",
-    "@prisma/client": "^7.7.0",
+    "@prisma/client": "^7.8.0",
     "@types/cors": "^2.8.19",
     "better-auth": "^1.6.2",
     "cors": "^2.8.6",
