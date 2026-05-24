@@ -382,3 +382,148 @@ export const saveProjectCode = async (req: Request, res: Response) => {
         res.status(500).json({ message: error.message });
     }
 }
+
+
+// Controller to edit project by prompt
+export const editProjectByPrompt = async (req: Request, res: Response) => {
+    const userid = req.userId;
+    try {
+        const { projectId } = req.params;
+        const { message } = req.body;
+
+        if (!userid) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+
+        if (!message || message.trim() === '') {
+            return res.status(400).json({ error: 'Please provide a valid prompt.' });
+        }
+
+        const user = await prisma.user.findUnique({
+            where: { id: userid },
+        });
+
+        if (!user) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+
+        if (user.credits < 5) {
+            return res.status(403).json({ error: 'Insufficient credits to edit project.' });
+        }
+
+        const projectIdStr = typeof projectId === 'string' ? projectId : String(projectId ?? '');
+
+        const project = await prisma.websiteProject.findUnique({
+            where: { id: projectIdStr, userId: userid },
+        });
+
+        if (!project) {
+            return res.status(404).json({ error: 'Project not found' });
+        }
+
+        await prisma.user.update({
+            where: { id: userid },
+            data: { credits: { decrement: 5 } },
+        });
+
+        // Enhance the user prompt
+        const enhanceResponse = await openai.chat.completions.create({
+            model: 'gpt-oss-120b',
+            messages: [
+                {
+                    role: 'system',
+                    content: `You are a prompt enhancement specialist. The user wants to edit their website. Enhance their request to be more specific and actionable for a web developer.
+
+Enhance this by:
+- Being specific about what elements to change (sections, components, UI blocks)
+- Mentioning design details (colors, spacing, typography, sizes, border radius, layout)
+- Clarifying the desired outcome and user experience behavior
+- Using clear technical terms (responsive design, flexbox/grid, object-fit, lazy loading)
+
+If the request involves images, galleries, or media:
+- MUST specify CDN-hosted images (not local files)
+- MUST mention responsive image handling (lazy loading, object-cover, grid layout)
+
+Return ONLY the enhanced prompt, nothing else. Keep it concise (1–2 sentences).`
+                },
+                {
+                    role: 'user',
+                    content: `User Request: "${message}"`,
+                },
+            ],
+        });
+
+        const enhancedPrompt = enhanceResponse.choices[0]?.message?.content ?? message;
+
+        // Generate updated code
+        const codeResponse = await openai.chat.completions.create({
+            model: 'gpt-oss-120b',
+            messages: [
+                {
+                    role: 'system',
+                    content: `You are an expert web developer.
+
+CRITICAL REQUIREMENTS:
+- Return ONLY a complete, valid, updated standalone HTML document.
+- Use Tailwind CSS ONLY for styling (no custom CSS, no <style> blocks).
+- Include all JavaScript inside <script> tags before </body>.
+- Ensure mobile-first responsive design (sm, md, lg breakpoints).
+- Output must be production-ready and error-free.
+- Do NOT include explanations, comments, or markdown — ONLY HTML.
+
+IMAGE HANDLING RULES:
+- Use CDN-hosted image URLs only.
+- Use Tailwind classes like object-cover, w-full, h-auto.
+- Use lazy loading (loading="lazy") for all images.
+
+Apply the requested changes while preserving existing structure unless explicitly asked to replace it.`
+                },
+                {
+                    role: 'user',
+                    content: `CURRENT WEBSITE CODE:
+${project.current_code}
+
+USER REQUEST (ENHANCED):
+${enhancedPrompt}
+
+TASK:
+Modify the existing website code according to the request while keeping it fully functional and Tailwind-based. Return only the final updated HTML.`
+                },
+            ],
+        });
+
+        const rawCode = codeResponse.choices[0]?.message?.content ?? '';
+        const cleanCode = rawCode
+            .replace(/```[a-z]*\n?/gi, '')
+            .replace(/```$/g, '')
+            .trim();
+
+        const version = await prisma.version.create({
+            data: {
+                code: cleanCode,
+                description: `Prompt edit: ${message.slice(0, 80)}`,
+                projectId: projectIdStr,
+            },
+        });
+
+        await prisma.websiteProject.update({
+            where: { id: projectIdStr },
+            data: {
+                current_code: cleanCode,
+                current_version_index: version.id,
+            },
+        });
+
+        res.json({ message: 'Project updated successfully', versionId: version.id });
+    } catch (error: any) {
+        // Refund credits on failure
+        if (userid) {
+            await prisma.user.update({
+                where: { id: userid },
+                data: { credits: { increment: 5 } },
+            });
+        }
+        console.error('Edit project by prompt error:', error);
+        res.status(500).json({ message: error.code || error.message });
+    }
+};
