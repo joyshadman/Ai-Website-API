@@ -6,12 +6,13 @@ import { protect } from "../middlewares/auth.js";
 const projectRouter = express.Router();
 
 projectRouter.post('/revision/:projectId', protect, makeRevision)
+projectRouter.post('/edit/:projectId', protect, editProjectByPrompt)       
+projectRouter.post('/rollback/:projectId/:versionId', protect, rollbackToVersion)  
 projectRouter.put('/save/:projectId', protect, saveProjectCode)
-projectRouter.get('/rollback/:projectId/:versionId', protect, rollbackToVersion)
-projectRouter.delete('/:projectId', protect, deleteProject)
 projectRouter.get('/preview/:projectId', protect, getProjectPreview)
 projectRouter.get('/published', getPublishedProjects)
 projectRouter.put('/published/:projectId', protect, togglePublish)
-projectRouter.post('/edit/:projectId', protect, editProjectByPrompt)
+projectRouter.get('/project/:projectId', getProjectById)
+projectRouter.delete('/:projectId', protect, deleteProject)                
 
 export default projectRouter;
