@@ -67,12 +67,17 @@ export const makeRevision = async (req: Request, res: Response) => {
                     content: `You are a prompt enhancement specialist. The user wants to make changes to their website. Enhance their request to be more specific and actionable for a web developer.
 
 Enhance this by:
-1. Being specific about what elements to change
-2. Mentioning design details (colors, spacing, sizes)
-3. Clarifying the desired outcome
-4. Using clear technical terms
+- Being specific about what elements to change (sections, components, UI blocks)
+- Mentioning design details (colors, spacing, typography, sizes, border radius, layout system)
+- Clarifying the desired outcome and user experience behavior
+- Using clear technical terms (responsive design, flexbox/grid, lazy loading, CDN image delivery, object-fit/object-cover)
 
-Return ONLY the enhanced request, nothing else. Keep it concise (1-2 sentences).`
+If the request involves images, galleries, backgrounds, or media:
+- MUST specify CDN-hosted images (not local files)
+- MUST mention fetching images dynamically from internet sources via CDN URLs
+- MUST include responsive image handling (lazy loading, optimized resolution, object-cover, grid layout)
+
+Return ONLY the enhanced request, nothing else. Keep it concise (1–2 sentences).`
                 },
                 {
                     role: 'user',
@@ -109,18 +114,33 @@ Return ONLY the enhanced request, nothing else. Keep it concise (1-2 sentences).
                     content: `You are an expert web developer.
 
 CRITICAL REQUIREMENTS:
-- Return ONLY the complete updated HTML code with the requested changes.
-- Use Tailwind CSS for ALL styling (NO custom CSS).
-- Use Tailwind utility classes for all styling changes.
-- Include all JavaScript in <script> tags before closing </body>
-- Make sure it's a complete, standalone HTML document with Tailwind CSS
-- Return the HTML Code Only, nothing else
+- Return ONLY a complete, valid, and updated standalone HTML document.
+- Use Tailwind CSS ONLY for styling (no custom CSS, no <style> blocks).
+- All UI styling must use Tailwind utility classes.
+- Include all JavaScript inside <script> tags before </body>.
+- Ensure mobile-first responsive design (sm, md, lg breakpoints).
+- Maintain clean semantic HTML structure.
+- Output must be production-ready and error-free.
+- Do NOT include explanations, comments, or markdown — ONLY HTML.
 
-Apply the requested changes while maintaining the Tailwind CSS styling approach.`
+IMAGE HANDLING RULES (IMPORTANT):
+- If images are required, use CDN-hosted image URLs only.
+- Images must be responsive using Tailwind classes like object-cover, w-full, h-auto.
+- Use lazy loading (loading="lazy") for all images.
+- Ensure images are optimized for performance and responsiveness.
+
+Apply the requested changes while preserving existing structure unless explicitly asked to replace it.`
                 },
                 {
                     role: 'user',
-                    content: `Here is your current website "${currentProject.current_code}" and here is the enhanced user request "${enhancedPrompt}". Made the necessary changes to the website based on the enhanced request.`,
+                    content: `CURRENT WEBSITE CODE:
+${currentProject.current_code}
+
+USER REQUEST (ENHANCED):
+${enhancedPrompt}
+
+TASK:
+Modify the existing website code according to the request while keeping it fully functional and Tailwind-based. Return only the final updated HTML.`
                 },
             ],
         });
