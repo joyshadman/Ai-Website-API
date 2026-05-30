@@ -6,6 +6,7 @@ import { getBetterAuthSecret, getBetterAuthUrl } from "./env.js";
 
 const googleClientId = process.env.GOOGLE_CLIENT_ID?.trim();
 const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim();
+const isProd = process.env.NODE_ENV === "production";
 
 type AuthInstance = ReturnType<typeof betterAuth>;
 
@@ -13,7 +14,7 @@ let authInstance: AuthInstance | null = null;
 
 export function getAuth(): AuthInstance | null {
   if (authInstance) return authInstance;
-  
+
   authInstance = betterAuth({
     database: prismaAdapter(prisma, {
       provider: "postgresql",
@@ -38,17 +39,12 @@ export function getAuth(): AuthInstance | null {
     baseURL: getBetterAuthUrl(),
     secret: getBetterAuthSecret(),
     advanced: {
-      cookies: {
-        session_token: {
-          name: "Auth_token",
-          attributes: {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === "production",
-            // Same-origin /api proxy: lax works on mobile; none is for cross-origin API only.
-            sameSite: "lax",
-            path: "/",
-          },
-        },
+      defaultCookieAttributes: {
+        httpOnly: true,
+        secure: isProd,
+        // First-party via Vercel /api proxy — lax keeps OAuth state on callback.
+        sameSite: "lax",
+        path: "/",
       },
     },
   }) as unknown as AuthInstance;

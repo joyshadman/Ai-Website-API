@@ -9,20 +9,16 @@ function isApiHost(url: string): boolean {
   );
 }
 
-/** Public URL where users hit /api/auth (frontend + Vercel proxy, not the API host). */
+/**
+ * Public URL where the browser calls /api/auth (Vercel frontend + proxy in prod).
+ * Must NOT be the Render API host — OAuth state cookies are origin-bound.
+ */
 export function getBetterAuthUrl(): string {
-  const frontend =
-    process.env.FRONTEND_URL?.trim() ||
-    process.env.BETTER_AUTH_FRONTEND_URL?.trim();
-
-  if (frontend) return frontend.replace(/\/$/, "");
-
   const fromEnv = process.env.BETTER_AUTH_URL?.trim();
   if (fromEnv) {
     const normalized = fromEnv.replace(/\/$/, "");
     if (!isApiHost(normalized)) return normalized;
   }
-
   if (process.env.NODE_ENV === "production") return PRODUCTION_FRONTEND;
   return "http://localhost:5173";
 }
@@ -31,24 +27,28 @@ export function getBetterAuthSecret(): string {
   const secret = process.env.BETTER_AUTH_SECRET?.trim();
   if (!secret) {
     throw new Error(
-      "BETTER_AUTH_SECRET is not set. Add it in Vercel → Settings → Environment Variables."
+      "BETTER_AUTH_SECRET is not set. Add it in Render → Environment Variables."
     );
   }
   return secret;
 }
 
 export function getEnvStatus() {
-  const configuredAuthUrl = process.env.BETTER_AUTH_URL?.trim();
+  const configured = process.env.BETTER_AUTH_URL?.trim();
   return {
     hasDatabaseUrl: Boolean(process.env.DATABASE_URL?.trim()),
     hasAuthSecret: Boolean(process.env.BETTER_AUTH_SECRET?.trim()),
-    hasAuthUrl: Boolean(configuredAuthUrl),
-    authUrlPointsAtApi: configuredAuthUrl
-      ? isApiHost(configuredAuthUrl.replace(/\/$/, ""))
+    hasAuthUrl: Boolean(configured),
+    authUrlMisconfigured: configured
+      ? isApiHost(configured.replace(/\/$/, ""))
       : false,
     betterAuthUrl: getBetterAuthUrl(),
+    frontendUrl: PRODUCTION_FRONTEND,
+    hasGoogleOAuth: Boolean(
+      process.env.GOOGLE_CLIENT_ID?.trim() &&
+        process.env.GOOGLE_CLIENT_SECRET?.trim()
+    ),
     hasOpenAiKey: Boolean(process.env.OPENAI_API_KEY?.trim()),
-    vercel: Boolean(process.env.VERCEL),
     nodeEnv: process.env.NODE_ENV ?? "unknown",
   };
 }

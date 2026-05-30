@@ -20,12 +20,11 @@ const corsOptions: cors.CorsOptions = {
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "Cookie"],
+  allowedHeaders: ["Content-Type", "Authorization", "Cookie", "X-Requested-With"],
 };
 
 app.use(cors(corsOptions));
 app.options(/.*/, cors(corsOptions));
-app.use(express.json({ limit: "50mb" }));
 
 app.get("/", (_req, res) => {
   res.json({
@@ -48,10 +47,11 @@ app.get("/api/health", (_req, res) => {
     env,
     hint: ready
       ? undefined
-      : "Set DATABASE_URL and BETTER_AUTH_SECRET on the API Vercel project, then redeploy.",
+      : "Set DATABASE_URL and BETTER_AUTH_SECRET on the API, then redeploy.",
   });
 });
 
+// Better Auth must run BEFORE express.json() or sign-in hangs / fails.
 app.all("/api/auth/*splat", async (req, res) => {
   try {
     const { getAuth } = await import("./auth.js");
@@ -67,6 +67,8 @@ app.all("/api/auth/*splat", async (req, res) => {
     res.status(503).json({ error: message, env: getEnvStatus() });
   }
 });
+
+app.use(express.json({ limit: "50mb" }));
 
 app.use("/api/user", userRoutes);
 app.use("/api/project", projectRoutes);
