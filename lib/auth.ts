@@ -4,6 +4,9 @@ import prisma from "./prisma.js";
 import { getTrustedOrigins } from "./cors.js";
 import { getBetterAuthSecret, getBetterAuthUrl } from "./env.js";
 
+const googleClientId = process.env.GOOGLE_CLIENT_ID?.trim();
+const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim();
+
 type AuthInstance = ReturnType<typeof betterAuth>;
 
 let authInstance: AuthInstance | null = null;
@@ -18,6 +21,16 @@ export function getAuth(): AuthInstance | null {
     emailAndPassword: {
       enabled: true,
     },
+    ...(googleClientId && googleClientSecret
+      ? {
+          socialProviders: {
+            google: {
+              clientId: googleClientId,
+              clientSecret: googleClientSecret,
+            },
+          },
+        }
+      : {}),
     user: {
       deleteUser: { enabled: true },
     },
@@ -31,7 +44,8 @@ export function getAuth(): AuthInstance | null {
           attributes: {
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
-            sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+            // Same-origin /api proxy: lax works on mobile; none is for cross-origin API only.
+            sameSite: "lax",
             path: "/",
           },
         },

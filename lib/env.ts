@@ -1,11 +1,12 @@
-import { PRODUCTION_API, PRODUCTION_FRONTEND } from "./cors.js";
+import { PRODUCTION_FRONTEND } from "./cors.js";
 
+/** Public URL where /api/auth is reached (frontend + proxy in prod, Vite in dev). */
 export function getBetterAuthUrl(): string {
   if (process.env.BETTER_AUTH_URL?.trim()) {
     return process.env.BETTER_AUTH_URL.trim().replace(/\/$/, "");
   }
-  if (process.env.NODE_ENV === "production") return PRODUCTION_API;
-  return "http://localhost:3000"; 
+  if (process.env.NODE_ENV === "production") return PRODUCTION_FRONTEND;
+  return "http://localhost:5173";
 }
 
 export function getBetterAuthSecret(): string {
@@ -29,4 +30,4 @@ export function getEnvStatus() {
   };
 }
 
-export { PRODUCTION_FRONTEND, PRODUCTION_API };
+export { PRODUCTION_FRONTEND, PRODUCTION_API } from "./cors.js";
