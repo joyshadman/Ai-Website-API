@@ -32,6 +32,10 @@ export function getAuth(): AuthInstance | null {
           },
         }
       : {}),
+    // OAuth state lives in DB; skip signed cookie check (breaks via Vercel→Render proxy).
+    account: {
+      skipStateCookieCheck: true,
+    },
     user: {
       deleteUser: { enabled: true },
     },
