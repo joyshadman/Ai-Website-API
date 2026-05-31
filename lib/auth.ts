@@ -32,7 +32,7 @@ export function getAuth(): AuthInstance | null {
 
     // ── Email + Password ──────────────────────────────────────────────────────
     emailAndPassword: {
-      enabled: true,
+      enabled: false,
       beforeSignUp: async ({ user }: { user: { email: string } }) => {
         if (!user.email.toLowerCase().endsWith("@gmail.com")) {
           throw new Error("Only Gmail addresses are allowed.");
