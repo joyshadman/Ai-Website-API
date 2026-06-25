@@ -365,6 +365,7 @@ export const getPublishedProjects = async (req: Request, res: Response) => {
         const projects = await prisma.websiteProject.findMany({
             where: { isPublished: true },
             include: { user: true },
+            orderBy: { updatedAt: 'desc' },
         });
 
         res.json({ projects });

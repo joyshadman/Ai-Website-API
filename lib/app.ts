@@ -5,6 +5,7 @@ import { getTrustedOrigins, PRODUCTION_API, PRODUCTION_FRONTEND } from "./cors.j
 import { getEnvStatus, getBetterAuthUrl } from "./env.js";
 import userRoutes from "../routes/userRoutes.js";
 import projectRoutes from "../routes/ProjectRoutes.js";
+import editingRoutes from "../routes/editingRoutes.js";
 
 const app = express();
 const trustedOrigins = getTrustedOrigins();
@@ -45,13 +46,10 @@ app.get("/api/health", (_req, res) => {
     frontend: PRODUCTION_FRONTEND,
     api: PRODUCTION_API,
     env,
-    hint: ready
-      ? undefined
-      : "Set DATABASE_URL and BETTER_AUTH_SECRET on the API, then redeploy.",
+    hint: ready ? undefined : "Set DATABASE_URL and BETTER_AUTH_SECRET on the API, then redeploy.",
   });
 });
 
-// Better Auth must run BEFORE express.json() or sign-in hangs / fails.
 app.all("/api/auth/*splat", async (req, res) => {
   try {
     const { getAuth } = await import("./auth.js");
@@ -72,17 +70,11 @@ app.use(express.json({ limit: "50mb" }));
 
 app.use("/api/user", userRoutes);
 app.use("/api/project", projectRoutes);
+app.use("/api/editing", editingRoutes);
 
-app.use(
-  (
-    err: Error,
-    _req: express.Request,
-    res: express.Response,
-    _next: express.NextFunction
-  ) => {
-    console.error(err);
-    res.status(500).json({ error: err.message || "Internal server error" });
-  }
-);
+app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error(err);
+  res.status(500).json({ error: err.message || "Internal server error" });
+});
 
 export default app;

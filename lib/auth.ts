@@ -3,8 +3,8 @@ import { prismaAdapter } from "better-auth/adapters/prisma";
 import { emailOTP } from "better-auth/plugins";
 import nodemailer from "nodemailer";
 import prisma from "./prisma.js";
-import { getTrustedOrigins } from "./cors.js";
-import { getBetterAuthSecret, getBetterAuthUrl } from "./env.js";
+import { getTrustedOrigins, PRODUCTION_FRONTEND } from "./cors.js";
+import { getBetterAuthSecret } from "./env.js";
 
 const googleClientId = process.env.GOOGLE_CLIENT_ID?.trim();
 const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim();
@@ -30,17 +30,10 @@ export function getAuth(): AuthInstance | null {
       provider: "postgresql",
     }),
 
-    // ── Email + Password ──────────────────────────────────────────────────────
     emailAndPassword: {
       enabled: false,
-      beforeSignUp: async ({ user }: { user: { email: string } }) => {
-        if (!user.email.toLowerCase().endsWith("@gmail.com")) {
-          throw new Error("Only Gmail addresses are allowed.");
-        }
-      },
     },
 
-    // ── Google OAuth ──────────────────────────────────────────────────────────
     ...(googleClientId && googleClientSecret
       ? {
         socialProviders: {
@@ -52,14 +45,9 @@ export function getAuth(): AuthInstance | null {
       }
       : {}),
 
-    // ── Plugins ───────────────────────────────────────────────────────────────
     plugins: [
       emailOTP({
         async sendVerificationOTP({ email, otp, type }) {
-          if (!email.toLowerCase().endsWith("@gmail.com")) {
-            throw new Error("Only Gmail addresses are allowed.");
-          }
-
           const subject =
             type === "email-verification"
               ? "Verify your email"
@@ -93,19 +81,31 @@ export function getAuth(): AuthInstance | null {
     ],
 
     account: {
-      skipStateCookieCheck: true,
+      skipStateCookieCheck: isProd,
     },
     user: {
       deleteUser: { enabled: true },
     },
     trustedOrigins: getTrustedOrigins(),
-    baseURL: getBetterAuthUrl(),
+    baseURL: {
+      allowedHosts: [
+        "localhost:5173",
+        "localhost:3000",
+        "localhost:4173",
+        "localhost:5000",
+        "127.0.0.1:5173",
+        "127.0.0.1:3000",
+        "ai-website-henna-eight.vercel.app",
+      ],
+      fallback: PRODUCTION_FRONTEND,
+    },
     secret: getBetterAuthSecret(),
     advanced: {
+      trustedProxyHeaders: true,
       defaultCookieAttributes: {
         httpOnly: true,
         secure: isProd,
-        sameSite: "lax",
+        sameSite: isProd ? "none" as const : "lax" as const,
         path: "/",
       },
     },

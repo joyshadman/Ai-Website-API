@@ -1,18 +1,9 @@
 import { PRODUCTION_API, PRODUCTION_FRONTEND } from "./cors.js";
 
 function isApiHost(url: string): boolean {
-  const lower = url.toLowerCase();
-  return (
-    url === PRODUCTION_API ||
-    lower.includes("ai-website-api.onrender.com") ||
-    lower.includes("ai-website-api.vercel.app")
-  );
+  return url === PRODUCTION_API;
 }
 
-/**
- * Public URL where the browser calls /api/auth (Vercel frontend + proxy in prod).
- * Must NOT be the Render API host — OAuth state cookies are origin-bound.
- */
 export function getBetterAuthUrl(): string {
   const fromEnv = process.env.BETTER_AUTH_URL?.trim();
   if (fromEnv) {
@@ -26,9 +17,7 @@ export function getBetterAuthUrl(): string {
 export function getBetterAuthSecret(): string {
   const secret = process.env.BETTER_AUTH_SECRET?.trim();
   if (!secret) {
-    throw new Error(
-      "BETTER_AUTH_SECRET is not set. Add it in Render → Environment Variables."
-    );
+    throw new Error("BETTER_AUTH_SECRET is not set.");
   }
   return secret;
 }
@@ -39,15 +28,11 @@ export function getEnvStatus() {
     hasDatabaseUrl: Boolean(process.env.DATABASE_URL?.trim()),
     hasAuthSecret: Boolean(process.env.BETTER_AUTH_SECRET?.trim()),
     hasAuthUrl: Boolean(configured),
-    authUrlMisconfigured: configured
-      ? isApiHost(configured.replace(/\/$/, ""))
-      : false,
+    authUrlMisconfigured: configured ? isApiHost(configured.replace(/\/$/, "")) : false,
     betterAuthUrl: getBetterAuthUrl(),
     frontendUrl: PRODUCTION_FRONTEND,
-    hasGoogleOAuth: Boolean(
-      process.env.GOOGLE_CLIENT_ID?.trim() &&
-        process.env.GOOGLE_CLIENT_SECRET?.trim()
-    ),
+    apiUrl: PRODUCTION_API,
+    hasGoogleOAuth: Boolean(process.env.GOOGLE_CLIENT_ID?.trim() && process.env.GOOGLE_CLIENT_SECRET?.trim()),
     hasOpenAiKey: Boolean(process.env.OPENAI_API_KEY?.trim()),
     nodeEnv: process.env.NODE_ENV ?? "unknown",
   };

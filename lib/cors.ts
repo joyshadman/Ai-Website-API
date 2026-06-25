@@ -1,10 +1,13 @@
-/** Frontend origins allowed to call the API (CORS + better-auth trustedOrigins). */
-export const PRODUCTION_FRONTEND = "https://ai-website-henna-eight.vercel.app";
-export const PRODUCTION_API = "https://ai-website-api.onrender.com";
+export const PRODUCTION_FRONTEND = process.env.FRONTEND_URL?.trim() || "https://ai-website-henna-eight.vercel.app";
+export const PRODUCTION_API = process.env.API_URL?.trim() || "https://ai-website-api.onrender.com";
 
 const DEFAULT_ORIGINS = [
   "http://localhost:5173",
   "http://localhost:3000",
+  "http://localhost:4173",
+  "http://localhost:5000",
+  "http://127.0.0.1:5173",
+  "http://127.0.0.1:3000",
   PRODUCTION_FRONTEND,
 ];
 
