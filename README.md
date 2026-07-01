@@ -194,8 +194,7 @@ All protected routes require a valid session cookie (handled by Better Auth).
 
 Uses **Better Auth** with two methods:
 
-1. **Email OTP** — User enters their email, receives a 6-digit code, and signs in
-2. **Google OAuth** — Social sign-in via Google
+- **Google OAuth** — Social sign-in via Google
 
 Sessions are managed with HTTP-only cookies (`httpOnly`, `secure` in production, `sameSite: none`).
 
