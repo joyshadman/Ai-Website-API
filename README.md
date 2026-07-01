@@ -40,10 +40,6 @@ GOOGLE_CLIENT_SECRET=your-google-client-secret
 AI_API_KEY=sk-or-v1-your-key
 OPENAI_API_KEY=sk-or-v1-your-key
 
-# SMTP (Gmail for OTP emails)
-SMTP_USER=your-email@gmail.com
-SMTP_PASS=your-gmail-app-password
-
 # CORS / URLs
 FRONTEND_URL=https://your-frontend.com
 API_URL=https://your-api.com
