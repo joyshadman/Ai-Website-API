@@ -6,6 +6,7 @@ import { getEnvStatus, getBetterAuthUrl } from "./env.js";
 import userRoutes from "../routes/userRoutes.js";
 import projectRoutes from "../routes/ProjectRoutes.js";
 import editingRoutes from "../routes/editingRoutes.js";
+import websiteRoutes from "../routes/websiteRoutes.js";
 
 const app = express();
 const trustedOrigins = getTrustedOrigins();
@@ -71,6 +72,7 @@ app.use(express.json({ limit: "50mb" }));
 app.use("/api/user", userRoutes);
 app.use("/api/project", projectRoutes);
 app.use("/api/editing", editingRoutes);
+app.use(websiteRoutes);
 
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err);

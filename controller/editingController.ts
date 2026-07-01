@@ -1,210 +1,140 @@
 import { type Request, type Response } from "express";
 import prisma from '../lib/prisma.js';
-
-const PAID_TOOLS: Record<string, number> = {
-    'multipage-layout': 5,
-    'premium-gallery-grid': 4,
-    'glassmorphism-hero-section': 3,
-    'interactive-contact-form': 3,
-    'iframe-youtube': 3,
-    'iframe-custom': 4,
-    'custom-link-button': 3,
-    'dynamic-form-page': 5
+import { htmlToComponents, componentsToHtml } from '../lib/htmlToSchema.js';
+export const getAvailableTools = async (_req: Request, res: Response) => {
+  try {
+    res.json({
+      freeTools: [
+        'container-div', 'flex-box', 'grid-layout',
+        'typography-text', 'image-holder', 'action-button',
+        'navigation-bar', 'footer-block'
+      ],
+      paidTools: {
+        'multipage-layout': 5,
+        'premium-gallery-grid': 4,
+        'glassmorphism-hero-section': 3,
+        'interactive-contact-form': 3,
+        'iframe-youtube': 3,
+        'iframe-custom': 4,
+        'custom-link-button': 3,
+        'dynamic-form-page': 5
+      }
+    });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
 };
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
+export const getEditorPage = async (req: Request, res: Response) => {
+  const { projectId } = req.params;
+  const userid = req.userId as string;
+  try {
+    const project = await prisma.websiteProject.findFirst({
+      where: { id: String(projectId ?? ''), userId: userid },
+      include: { versions: { orderBy: { timestamp: 'desc' }, take: 50 } }
+    });
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    let pageData: any;
+    try { pageData = JSON.parse((project as any).pageData || '{}'); } catch { pageData = {}; }
 
-export const getAvailableTools = async (req: Request, res: Response) => {
-    try {
-        res.json({
-            freeTools: [
-                'container-div',
-                'flex-box',
-                'grid-layout',
-                'typography-text',
-                'image-holder',
-                'action-button',
-                'navigation-bar',
-                'footer-block'
-            ],
-            paidTools: PAID_TOOLS
-        });
-    } catch (error: any) {
-        res.status(500).json({ message: error.message });
-    }
-};
-
-export const applyEditingTool = async (req: Request, res: Response) => {
-    const userid = req.userId;
-    const { projectId } = req.params;
-    const { toolName, updatedCode, pageId = "index" } = req.body;
-
-    if (!userid) {
-        return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    if (!toolName || !updatedCode) {
-        return res.status(400).json({ error: 'Missing required parameters' });
-    }
-
-    const projectIdStr = String(projectId ?? '');
-    const creditCost = toolName in PAID_TOOLS ? (PAID_TOOLS[toolName] ?? 0) : 0;
-
-    try {
-        const user = await prisma.user.findUnique({
-            where: { id: userid },
-            select: { credits: true }
-        });
-
-        if (!user) {
-            return res.status(401).json({ error: 'Unauthorized' });
-        }
-
-        if (user.credits < creditCost) {
-            return res.status(403).json({ error: 'Insufficient credits' });
-        }
-
-        const project = await prisma.websiteProject.findUnique({
-            where: { id: projectIdStr, userId: userid }
-        });
-
-        if (!project) {
-            return res.status(404).json({ error: 'Project not found' });
-        }
-
-        if (creditCost > 0) {
-            await prisma.user.update({
-                where: { id: userid },
-                data: { credits: { decrement: creditCost } }
-            });
-        }
-
-        const cleanCode = updatedCode
-            .replace(/```[a-z]*\n?/gi, '')
-            .replace(/```$/g, '')
-            .trim();
-
-        const version = await prisma.version.create({
-            data: {
-                code: cleanCode,
-                description: `Drag and Drop Update: ${toolName} on page ${pageId}`,
-                projectId: projectIdStr
-            }
-        });
-
+    // Auto-convert legacy projects: if pageData is empty but HTML exists, convert it
+    if ((!pageData.components || pageData.components.length === 0) && (project as any).current_code) {
+      const components = htmlToComponents((project as any).current_code);
+      if (components.length > 0) {
+        pageData = { components };
         await prisma.websiteProject.update({
-            where: { id: projectIdStr },
-            data: {
-                current_code: cleanCode,
-                current_version_index: version.id
-            }
+          where: { id: project.id },
+          data: { pageData: JSON.stringify(pageData) } as any
         });
-
-        const updatedUser = await prisma.user.findUnique({
-            where: { id: userid },
-            select: { credits: true }
-        });
-
-        res.json({
-            message: `Tool ${toolName} applied successfully to page ${pageId}`,
-            versionId: version.id,
-            remainingCredits: updatedUser?.credits ?? 0,
-            cost: creditCost
-        });
-
-    } catch (error: any) {
-        res.status(500).json({ message: error.message || 'Failed to apply editing tool' });
+      }
     }
+
+    res.json({ project: { ...project, pageData } });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
 };
 
-export const uploadProjectImage = async (req: Request, res: Response) => {
-    const userid = req.userId;
-    const { projectId } = req.params;
-    const { imageData, mimeType } = req.body;
-
-    if (!userid) {
-        return res.status(401).json({ error: 'Unauthorized' });
+export const saveEditorPage = async (req: Request, res: Response) => {
+  const { projectId } = req.params;
+  const userid = req.userId as string;
+  const { pageData, name } = req.body;
+  try {
+    const data: any = {};
+    if (pageData !== undefined) {
+      data.pageData = JSON.stringify(pageData);
+      // Support multi-page format: flatten components from all pages
+      if (pageData.pages && Array.isArray(pageData.pages)) {
+        const allComponents = pageData.pages.flatMap((p: any) => p.components || []);
+        data.current_code = componentsToHtml(allComponents);
+      } else {
+        const components = pageData.components || pageData;
+        data.current_code = componentsToHtml(components);
+      }
     }
-
-    if (!imageData) {
-        return res.status(400).json({ error: 'Missing image data' });
-    }
-
-    const approximateBytes = Math.floor((imageData.length * 3) / 4);
-    if (approximateBytes > MAX_FILE_SIZE) {
-        return res.status(400).json({ error: 'File size exceeds the 10MB limit' });
-    }
-
-    const projectIdStr = String(projectId ?? '');
-
-    try {
-        const project = await prisma.websiteProject.findFirst({
-            where: { id: projectIdStr, userId: userid }
-        });
-
-        if (!project) {
-            return res.status(404).json({ error: 'Project not found' });
-        }
-
-        res.json({
-            message: 'Image verified and uploaded successfully',
-            url: `data:${mimeType || 'image/png'};base64,${imageData.replace(/^data:image\/[a-z]+;base64,/, '')}`
-        });
-    } catch (error: any) {
-        res.status(500).json({ message: error.message || 'Failed to process image upload' });
-    }
+    if (name !== undefined) data.name = name;
+    const project = await prisma.websiteProject.update({
+      where: { id: String(projectId ?? ''), userId: userid },
+      data
+    });
+    res.json({ project });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
 };
 
-export const deleteCanvasElement = async (req: Request, res: Response) => {
-    const userid = req.userId;
-    const { projectId } = req.params;
-    const { updatedCode, elementId, pageId = "index" } = req.body;
+export const publishEditorPage = async (req: Request, res: Response) => {
+  const { projectId } = req.params;
+  const userid = req.userId as string;
+  try {
+    const project = await prisma.websiteProject.findFirst({
+      where: { id: String(projectId ?? ''), userId: userid }
+    });
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    const updated = await prisma.websiteProject.update({
+      where: { id: project.id },
+      data: { isPublished: !project.isPublished }
+    });
+    res.json({ isPublished: updated.isPublished });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+};
 
-    if (!userid) {
-        return res.status(401).json({ error: 'Unauthorized' });
+export const getEditorHistory = async (req: Request, res: Response) => {
+  const { projectId } = req.params;
+  try {
+    const versions = await prisma.version.findMany({
+      where: { projectId: String(projectId ?? '') },
+      orderBy: { timestamp: 'desc' },
+      take: 100
+    });
+    res.json({ versions });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const getEditorPagePublic = async (req: Request, res: Response) => {
+  const { projectId } = req.params;
+  try {
+    const project = await prisma.websiteProject.findFirst({
+      where: { id: String(projectId ?? ''), isPublished: true }
+    });
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    let pageData: any;
+    try { pageData = JSON.parse((project as any).pageData || '{}'); } catch { pageData = {}; }
+
+    // Auto-convert legacy published projects
+    if ((!pageData.components || pageData.components.length === 0) && (project as any).current_code) {
+      const components = htmlToComponents((project as any).current_code);
+      if (components.length > 0) {
+        pageData = { components };
+      }
     }
 
-    if (!updatedCode) {
-        return res.status(400).json({ error: 'Missing layout configuration payload' });
-    }
-
-    const projectIdStr = String(projectId ?? '');
-
-    try {
-        const project = await prisma.websiteProject.findFirst({
-            where: { id: projectIdStr, userId: userid }
-        });
-
-        if (!project) {
-            return res.status(404).json({ error: 'Project not found' });
-        }
-
-        const cleanCode = updatedCode
-            .replace(/```[a-z]*\n?/gi, '')
-            .replace(/```$/g, '')
-            .trim();
-
-        const version = await prisma.version.create({
-            data: {
-                code: cleanCode,
-                description: `Deleted element ${elementId || ''} from page ${pageId}`,
-                projectId: projectIdStr
-            }
-        });
-
-        await prisma.websiteProject.update({
-            where: { id: projectIdStr },
-            data: {
-                current_code: cleanCode,
-                current_version_index: version.id
-            }
-        });
-
-        res.json({
-            message: 'Element successfully removed from layout canvas',
-            versionId: version.id
-        });
-    } catch (error: any) {
-        res.status(500).json({ message: error.message || 'Failed to execute structural component removal' });
-    }
+    res.json({ project: { id: project.id, name: project.name, pageData } });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
 };

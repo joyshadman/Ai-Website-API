@@ -36,6 +36,7 @@ model WebsiteProject {
   current_version_index String  @default("")
   userId                String
   isPublished           Boolean @default(false)
+  pageData              String  @default("[]")
 
   // Relations
   conversation Conversation[]

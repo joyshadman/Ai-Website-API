@@ -24,6 +24,7 @@
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "jsdom": "^29.1.1",
     "nodemailer": "^8.0.10",
     "nodemon": "^3.1.14",
     "openai": "^6.37.0",
@@ -32,6 +33,7 @@
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
+    "@types/jsdom": "^28.0.3",
     "@types/node": "^25.6.0",
     "@types/nodemailer": "^8.0.0",
     "@types/pg": "^8.20.0",

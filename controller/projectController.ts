@@ -1,6 +1,7 @@
 import express, { type Request, type Response } from "express";
 import prisma from '../lib/prisma.js';
 import openai from '../config/openai.js';
+import { htmlToComponents } from '../lib/htmlToSchema.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -228,11 +229,15 @@ Modify the existing website code according to the request while keeping it fully
             }
         });
 
+        const components = htmlToComponents(cleanCode);
+        const pageData = JSON.stringify({ components });
+
         await prisma.websiteProject.update({
             where: { id: projectIdStr },
             data: {
                 current_code: cleanCode,
-                current_version_index: version.id
+                current_version_index: version.id,
+                pageData,
             }
         });
 
@@ -279,9 +284,16 @@ export const rollbackToVersion = async (req: Request, res: Response) => {
             return res.status(404).json({ error: 'Version not found' });
         }
 
+        const rollbackComponents = htmlToComponents(version.code);
+        const rollbackPageData = JSON.stringify({ components: rollbackComponents });
+
         await prisma.websiteProject.update({
             where: { id: projectIdStr, userId: userid },
-            data: { current_code: version.code, current_version_index: version.id }
+            data: {
+                current_code: version.code,
+                current_version_index: version.id,
+                pageData: rollbackPageData,
+            }
         });
 
         await prisma.conversation.create({
@@ -530,11 +542,15 @@ Modify the existing website code according to the request while keeping it fully
             },
         });
 
+        const components = htmlToComponents(cleanCode);
+        const pageData = JSON.stringify({ components });
+
         await prisma.websiteProject.update({
             where: { id: projectIdStr },
             data: {
                 current_code: cleanCode,
                 current_version_index: version.id,
+                pageData,
             },
         });
 

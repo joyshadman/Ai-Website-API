@@ -1,6 +1,7 @@
 import openai from '../config/openai.js';
 import express, { type Request, type Response } from 'express';
 import prisma from '../lib/prisma.js';
+import { htmlToComponents } from '../lib/htmlToSchema.js';
 
 const cleanCode = (code: string) => code
     .replace(/```[a-z]*\n?/gi, '')
@@ -129,13 +130,27 @@ Return ONLY the enhanced prompt, nothing else. Make it detailed but concise (2-3
             },
         });
 
+        const cleanedCode = cleanCode(code);
+        console.log("[DEBUG] AI generated HTML length:", cleanedCode.length);
+        const components = htmlToComponents(cleanedCode);
+        console.log("[DEBUG] htmlToComponents produced", components.length, "components");
+        const pageData = JSON.stringify({
+          pages: [
+            { id: 'page-1', name: 'Home', slug: '/', components }
+          ],
+          globalStyles: {}
+        });
+        console.log("[DEBUG] pageData length:", pageData.length);
+
         await prisma.websiteProject.update({
             where: { id: projectId },
             data: {
-                current_code: cleanCode(code),
+                current_code: cleanedCode,
                 current_version_index: version.id,
+                pageData,
             },
         });
+        console.log("[DEBUG] Project updated with pageData and current_code");
     } catch (error) {
         console.error('Background generation error:', error);
 
