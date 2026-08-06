@@ -1,12 +1,8 @@
-import openai from '../config/openai.js';
+import openai, { assertAiKeyConfigured } from '../config/openai.js';
 import { type Request, type Response } from 'express';
 import prisma from '../lib/prisma.js';
 import { htmlToComponents } from '../lib/htmlToSchema.js';
-
-const cleanCode = (code: string) => code
-    .replace(/```[a-z]*\n?/gi, '')
-    .replace(/```$/g, '')
-    .trim();
+import { extractHtmlCode } from '../lib/extractCode.js';
 
 async function refundCredits(userId: string) {
     try {
@@ -33,6 +29,8 @@ async function generateProjectWebsite(
         if (!existing || existing.current_code) {
             return;
         }
+
+        assertAiKeyConfigured();
 
         const promptEnhanceResponse = await openai.chat.completions.create({
             model: 'gpt-oss-120b',
@@ -112,11 +110,18 @@ Return ONLY the enhanced prompt, nothing else. Make it detailed but concise (2-3
         });
 
         // FIX (TS2532): choices[0] is possibly undefined — use optional chaining + fallback
-        const code = codeGenerationResponse.choices[0]?.message?.content ?? '';
+        const rawCode = codeGenerationResponse.choices[0]?.message?.content ?? '';
+
+        const cleanedCode = extractHtmlCode(rawCode);
+        if (!cleanedCode) {
+            // Abort before persisting anything: empty/invalid output must not
+            // overwrite pageData/current_code or create a broken version.
+            throw new Error('AI returned empty or invalid HTML; nothing was saved.');
+        }
 
         const version = await prisma.version.create({
             data: {
-                code: cleanCode(code),
+                code: cleanedCode,
                 description: 'Initial version',
                 projectId,
             },
@@ -130,7 +135,6 @@ Return ONLY the enhanced prompt, nothing else. Make it detailed but concise (2-3
             },
         });
 
-        const cleanedCode = cleanCode(code);
         const components = htmlToComponents(cleanedCode);
         const pageData = JSON.stringify({
           pages: [

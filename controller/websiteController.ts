@@ -1,5 +1,6 @@
 import { type Request, type Response } from "express";
 import prisma from '../lib/prisma.js';
+import { componentsToHtml } from '../lib/htmlToSchema.js';
 
 export const getWebsite = async (req: Request, res: Response) => {
   const { id } = req.params;
@@ -55,6 +56,13 @@ export const updateWebsite = async (req: Request, res: Response) => {
         globalStyles: incomingGlobalStyles !== undefined ? incomingGlobalStyles : (existing.globalStyles || {})
       };
       data.pageData = JSON.stringify(merged);
+
+      // Keep current_code in sync so Builder/Community previews reflect the
+      // saved component tree (mirrors editingController.saveEditorPage).
+      if (Array.isArray(merged.pages)) {
+        const allComponents = merged.pages.flatMap((p: any) => p.components || []);
+        data.current_code = componentsToHtml(allComponents);
+      }
     }
 
     const updated = await prisma.websiteProject.update({

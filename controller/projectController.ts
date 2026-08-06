@@ -1,7 +1,8 @@
 import { type Request, type Response } from "express";
 import prisma from '../lib/prisma.js';
-import openai from '../config/openai.js';
+import openai, { assertAiKeyConfigured } from '../config/openai.js';
 import { htmlToComponents } from '../lib/htmlToSchema.js';
+import { extractHtmlCode } from '../lib/extractCode.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -148,6 +149,8 @@ export const makeRevision = async (req: Request, res: Response) => {
             data: { credits: { decrement: 5 } },
         });
 
+        assertAiKeyConfigured();
+
         // Build reference block from any URLs in the message
         const referenceBlock = await buildReferenceBlock(message);
 
@@ -206,12 +209,14 @@ Modify the existing website code according to the request while keeping it fully
             ],
         });
 
-        const code = codeGenerationResponse.choices[0]?.message?.content ?? '';
+        const rawCode = codeGenerationResponse.choices[0]?.message?.content ?? '';
 
-        const cleanCode = code
-            .replace(/```[a-z]*\n?/gi, '')
-            .replace(/```$/g, '')
-            .trim();
+        const cleanCode = extractHtmlCode(rawCode);
+        if (!cleanCode) {
+            // Abort before persisting: empty/invalid output must not overwrite
+            // the existing code or create a broken version.
+            throw new Error('AI returned empty or invalid HTML; nothing was saved.');
+        }
 
         const version = await prisma.version.create({
             data: {
@@ -492,6 +497,8 @@ export const editProjectByPrompt = async (req: Request, res: Response) => {
             data: { credits: { decrement: 5 } },
         });
 
+        assertAiKeyConfigured();
+
         // Build reference block from any URLs in the message
         const referenceBlock = await buildReferenceBlock(message);
 
@@ -535,10 +542,13 @@ Modify the existing website code according to the request while keeping it fully
         });
 
         const rawCode = codeResponse.choices[0]?.message?.content ?? '';
-        const cleanCode = rawCode
-            .replace(/```[a-z]*\n?/gi, '')
-            .replace(/```$/g, '')
-            .trim();
+
+        const cleanCode = extractHtmlCode(rawCode);
+        if (!cleanCode) {
+            // Abort before persisting: empty/invalid output must not overwrite
+            // the existing code or create a broken version.
+            throw new Error('AI returned empty or invalid HTML; nothing was saved.');
+        }
 
         const version = await prisma.version.create({
             data: {
