@@ -2,8 +2,8 @@
   // Visit https://aka.ms/tsconfig to read more about this file
   "compilerOptions": {
     // File Layout
-    // "rootDir": "./src",
-    // "outDir": "./dist",
+    "rootDir": ".",
+    "outDir": "./dist",
 
     // Environment Settings
     // See also https://aka.ms/tsconfig/module
@@ -21,9 +21,10 @@
     },
 
     // Other Outputs
-    "sourceMap": true,
-    "declaration": true,
-    "declarationMap": true,
+    // This is a Node.js application, not a published npm library:
+    //   - sourceMap   -> disabled (no *.js.map in production output)
+    //   - declaration -> disabled (no *.d.ts in production output)
+    //   - declarationMap -> disabled (no *.d.ts.map in production output)
 
     // Stricter Typechecking Options
     "noUncheckedIndexedAccess": true,
@@ -45,5 +46,15 @@
     "noUncheckedSideEffectImports": true,
     "moduleDetection": "force",
     "skipLibCheck": true
-  }
+  },
+  "include": [
+    "server.ts",
+    "config/**/*.ts",
+    "controller/**/*.ts",
+    "lib/**/*.ts",
+    "middlewares/**/*.ts",
+    "routes/**/*.ts",
+    "types/**/*.ts"
+  ],
+  "exclude": ["dist", "node_modules", "prisma.config.ts"]
 }
