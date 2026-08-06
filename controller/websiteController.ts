@@ -98,28 +98,19 @@ export const deleteWebsite = async (req: Request, res: Response) => {
 export const getEditorWebsite = async (req: Request, res: Response) => {
   const { websiteId } = req.params;
   const userId = req.userId as string;
-  console.log("[DEBUG] getEditorWebsite - websiteId:", websiteId, "userId:", userId);
   try {
     const project = await prisma.websiteProject.findFirst({
       where: { id: String(websiteId ?? ''), userId }
     });
     if (!project) {
-      console.log("[DEBUG] getEditorWebsite - Project not found for id:", websiteId, "userId:", userId);
       return res.status(404).json({ error: 'Website not found' });
     }
 
-    console.log("[DEBUG] getEditorWebsite - Found project:", project.id, project.name);
-    console.log("[DEBUG] getEditorWebsite - project.current_code exists:", !!project.current_code);
-    console.log("[DEBUG] getEditorWebsite - project.pageData raw:", project.pageData?.substring?.(0, 200));
-
     let pageData: any = {};
     try { pageData = JSON.parse((project as any).pageData || '{}'); } catch { pageData = {}; }
-    console.log("[DEBUG] getEditorWebsite - parsed pageData keys:", Object.keys(pageData));
-    console.log("[DEBUG] getEditorWebsite - has pages?", !!pageData.pages, "has components?", !!pageData.components);
 
     // Auto-convert legacy: if pageData has no pages but has components, wrap into pages
     if ((!pageData.pages || pageData.pages.length === 0) && pageData.components) {
-      console.log("[DEBUG] getEditorWebsite - Auto-converting legacy components to pages. Components count:", pageData.components.length);
       pageData = {
         pages: [
           { id: 'page-1', name: 'Home', slug: '/', components: pageData.components || [] }
@@ -130,7 +121,6 @@ export const getEditorWebsite = async (req: Request, res: Response) => {
         where: { id: project.id },
         data: { pageData: JSON.stringify(pageData) } as any
       });
-      console.log("[DEBUG] getEditorWebsite - Legacy conversion saved to DB");
     }
 
     // Ensure at least one page exists
@@ -138,16 +128,8 @@ export const getEditorWebsite = async (req: Request, res: Response) => {
       ? pageData.pages
       : [{ id: 'page-1', name: 'Home', slug: '/', components: [] }];
 
-    const response = {
-      websiteId: project.id,
-      name: project.name,
-      pages
-    };
-    console.log("[DEBUG] getEditorWebsite - Response pages count:", response.pages.length);
-    console.log("[DEBUG] getEditorWebsite - Sending success response");
-    res.json(response);
+    res.json({ websiteId: project.id, name: project.name, pages });
   } catch (error: any) {
-    console.error("[DEBUG] getEditorWebsite - Error:", error.message);
     res.status(500).json({ message: error.message });
   }
 };

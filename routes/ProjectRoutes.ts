@@ -1,4 +1,4 @@
-import { deleteProject, getProjectById, getProjectPreview, getPublishedProjects, makeRevision, rollbackToVersion, saveProjectCode, editProjectByPrompt } from "../controller/projectController.js";
+import { deleteProject, getProjectById, getProjectPreview, getPublishedProjects, makeRevision, rollbackToVersion, saveProjectCode, editProjectByPrompt, toggleSaveMessage, getSavedMessages } from "../controller/projectController.js";
 import { togglePublish } from "../controller/userController.js";
 import express from "express";
 import { protect } from "../middlewares/auth.js";
@@ -14,5 +14,7 @@ projectRouter.get('/published', getPublishedProjects)
 projectRouter.put('/published/:projectId', protect, togglePublish)
 projectRouter.get('/project/:projectId', getProjectById)
 projectRouter.delete('/:projectId', protect, deleteProject)                
+projectRouter.put('/save-message/:conversationId', protect, toggleSaveMessage)
+projectRouter.get('/saved-messages/:projectId', protect, getSavedMessages)
 
 export default projectRouter;

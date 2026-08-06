@@ -1,4 +1,4 @@
-import express, { type Request, type Response } from "express";
+import { type Request, type Response } from "express";
 import prisma from '../lib/prisma.js';
 import openai from '../config/openai.js';
 import { htmlToComponents } from '../lib/htmlToSchema.js';
@@ -230,7 +230,10 @@ Modify the existing website code according to the request while keeping it fully
         });
 
         const components = htmlToComponents(cleanCode);
-        const pageData = JSON.stringify({ components });
+        const pageData = JSON.stringify({
+            pages: [{ id: 'page-1', name: 'Home', slug: '/', components }],
+            globalStyles: {}
+        });
 
         await prisma.websiteProject.update({
             where: { id: projectIdStr },
@@ -285,7 +288,10 @@ export const rollbackToVersion = async (req: Request, res: Response) => {
         }
 
         const rollbackComponents = htmlToComponents(version.code);
-        const rollbackPageData = JSON.stringify({ components: rollbackComponents });
+        const rollbackPageData = JSON.stringify({
+            pages: [{ id: 'page-1', name: 'Home', slug: '/', components: rollbackComponents }],
+            globalStyles: {}
+        });
 
         await prisma.websiteProject.update({
             where: { id: projectIdStr, userId: userid },
@@ -543,7 +549,10 @@ Modify the existing website code according to the request while keeping it fully
         });
 
         const components = htmlToComponents(cleanCode);
-        const pageData = JSON.stringify({ components });
+        const pageData = JSON.stringify({
+            pages: [{ id: 'page-1', name: 'Home', slug: '/', components }],
+            globalStyles: {}
+        });
 
         await prisma.websiteProject.update({
             where: { id: projectIdStr },
