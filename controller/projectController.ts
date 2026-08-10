@@ -63,6 +63,7 @@ CRITICAL REQUIREMENTS:
 - Maintain clean semantic HTML structure.
 - Output must be production-ready and error-free.
 - Do NOT include explanations, comments, or markdown — ONLY HTML.
+- If the user's request is brief or vague, silently expand it into a detailed specification as you generate (concrete sections, layout, colors, typography, interactions). Never return the specification text itself — only the final HTML.
 
 IMAGE HANDLING RULES (IMPORTANT):
 - If images are required, use CDN-hosted image URLs only.
@@ -79,22 +80,6 @@ REFERENCE CONTENT RULES:
 - Do NOT copy any text content verbatim from references — only use them for visual/design guidance.
 
 Apply the requested changes while preserving existing structure unless explicitly asked to replace it.`;
-
-const PROMPT_ENHANCE_SYSTEM = `You are a prompt enhancement specialist. The user wants to make changes to their website. Enhance their request to be more specific and actionable for a web developer.
-
-Enhance this by:
-- Being specific about what elements to change (sections, components, UI blocks)
-- Mentioning design details (colors, spacing, typography, sizes, border radius, layout system)
-- Clarifying the desired outcome and user experience behavior
-- Using clear technical terms (responsive design, flexbox/grid, lazy loading, CDN image delivery, object-fit/object-cover)
-
-If the request involves images, galleries, backgrounds, or media:
-- MUST specify CDN-hosted images (not local files)
-- MUST mention fetching images dynamically from internet sources via CDN URLs
-- MUST include responsive image handling (lazy loading, optimized resolution, object-cover, grid layout)
-- MUST include explicit width and height attributes for layout stability
-
-Return ONLY the enhanced request, nothing else. Keep it concise (1–2 sentences).`;
 
 // ─── Controllers ─────────────────────────────────────────────────────────────
 
@@ -154,31 +139,6 @@ export const makeRevision = async (req: Request, res: Response) => {
         // Build reference block from any URLs in the message
         const referenceBlock = await buildReferenceBlock(message);
 
-        // Enhance user prompt
-        const promptEnhanceResponse = await openai.chat.completions.create({
-            model: 'gpt-oss-120b',
-            messages: [
-                {
-                    role: 'system',
-                    content: PROMPT_ENHANCE_SYSTEM,
-                },
-                {
-                    role: 'user',
-                    content: `User Request: "${message}"`,
-                },
-            ],
-        });
-
-        const enhancedPrompt = promptEnhanceResponse.choices[0]?.message?.content ?? message;
-
-        await prisma.conversation.create({
-            data: {
-                role: 'assistant',
-                content: `I have enhanced the user prompt "${enhancedPrompt}"`,
-                projectId: projectIdStr
-            },
-        });
-
         await prisma.conversation.create({
             data: {
                 role: 'assistant',
@@ -187,7 +147,8 @@ export const makeRevision = async (req: Request, res: Response) => {
             },
         });
 
-        // Generate website code
+        // Single AI request per action — the generation prompt expands the user
+        // request itself. No separate enhance round-trip and no model fallback.
         const codeGenerationResponse = await openai.chat.completions.create({
             model: 'gpt-oss-120b',
             messages: [
@@ -200,8 +161,8 @@ export const makeRevision = async (req: Request, res: Response) => {
                     content: `CURRENT WEBSITE CODE:
 ${currentProject.current_code}
 
-USER REQUEST (ENHANCED):
-${enhancedPrompt}${referenceBlock}
+USER REQUEST:
+${message}${referenceBlock}
 
 TASK:
 Modify the existing website code according to the request while keeping it fully functional and Tailwind-based. Return only the final updated HTML.`,
@@ -502,24 +463,8 @@ export const editProjectByPrompt = async (req: Request, res: Response) => {
         // Build reference block from any URLs in the message
         const referenceBlock = await buildReferenceBlock(message);
 
-        // Enhance the user prompt
-        const enhanceResponse = await openai.chat.completions.create({
-            model: 'gpt-oss-120b',
-            messages: [
-                {
-                    role: 'system',
-                    content: PROMPT_ENHANCE_SYSTEM,
-                },
-                {
-                    role: 'user',
-                    content: `User Request: "${message}"`,
-                },
-            ],
-        });
-
-        const enhancedPrompt = enhanceResponse.choices[0]?.message?.content ?? message;
-
-        // Generate updated code
+        // Single AI request per action — the generation prompt expands the user
+        // request itself. No separate enhance round-trip and no model fallback.
         const codeResponse = await openai.chat.completions.create({
             model: 'gpt-oss-120b',
             messages: [
@@ -532,8 +477,8 @@ export const editProjectByPrompt = async (req: Request, res: Response) => {
                     content: `CURRENT WEBSITE CODE:
 ${project.current_code}
 
-USER REQUEST (ENHANCED):
-${enhancedPrompt}${referenceBlock}
+USER REQUEST:
+${message}${referenceBlock}
 
 TASK:
 Modify the existing website code according to the request while keeping it fully functional and Tailwind-based. Return only the final updated HTML.`,

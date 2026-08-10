@@ -32,41 +32,6 @@ async function generateProjectWebsite(
 
         assertAiKeyConfigured();
 
-        const promptEnhanceResponse = await openai.chat.completions.create({
-            model: 'gpt-oss-120b',
-            messages: [
-                {
-                    role: 'system',
-                    content: `You are a prompt enhancement specialist. Take the user's website request and expand it into a detailed, comprehensive prompt that will help create the best possible website.
-
-Enhance this prompt by:
-1. Adding specific design details (layout, color scheme, typography)
-2. Specifying key sections and features
-3. Describing the user experience and interactions
-4. Including modern web design best practices
-5. Mentioning responsive design requirements
-6. Adding any missing but important elements
-
-Return ONLY the enhanced prompt, nothing else. Make it detailed but concise (2-3 paragraphs max).`,
-                },
-                {
-                    role: 'user',
-                    content: initial_prompt,
-                },
-            ],
-        });
-
-        // FIX (TS2532): choices[0] is possibly undefined — use optional chaining + fallback
-        const enhancedPrompt = promptEnhanceResponse.choices[0]?.message?.content ?? initial_prompt;
-
-        await prisma.conversation.create({
-            data: {
-                role: 'assistant',
-                content: `I enhanced the prompt to: ${enhancedPrompt}`,
-                projectId,
-            },
-        });
-
         await prisma.conversation.create({
             data: {
                 role: 'assistant',
@@ -75,13 +40,18 @@ Return ONLY the enhanced prompt, nothing else. Make it detailed but concise (2-3
             },
         });
 
+        // Single AI request per action (no prompt-enhancement round-trip and no
+        // model fallback): the generation prompt itself instructs the model to
+        // expand brief requests into a full site, so only ONE OpenRouter call
+        // is made per user action. This halves rate-limit consumption.
         const codeGenerationResponse = await openai.chat.completions.create({
             model: 'gpt-oss-120b',
             messages: [{
                 role: 'system',
-                content: `You are an expert web developer. Create a complete, production-ready, single-page website based on this request: "${enhancedPrompt}"
+                content: `You are an expert web developer. Create a complete, production-ready, single-page website based on this request: "${initial_prompt}"
 
     CRITICAL REQUIREMENTS:
+    - If the request is brief or vague, silently expand it into a detailed specification as you generate: decide concrete sections, layout, color palette, and typography. Never return the specification text itself — only the final HTML.
     - You MUST output valid HTML ONLY. 
     - Use Tailwind CSS for ALL styling
     - Include this EXACT script in the <head>: <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
@@ -105,7 +75,7 @@ Return ONLY the enhanced prompt, nothing else. Make it detailed but concise (2-3
     The HTML should be complete and ready to render as-is with Tailwind CSS.`,
             }, {
                 role: 'user',
-                content: enhancedPrompt,
+                content: initial_prompt,
             }],
         });
 

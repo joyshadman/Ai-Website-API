@@ -36,6 +36,10 @@ BETTER_AUTH_URL=http://localhost:5173
 GOOGLE_CLIENT_ID=your-google-client-id
 GOOGLE_CLIENT_SECRET=your-google-client-secret
 
+# Email OTP (Gmail SMTP — use an App Password, not your regular password)
+SMTP_USER=you@gmail.com
+SMTP_PASS=your-gmail-app-password
+
 # AI / OpenRouter
 AI_API_KEY=sk-or-v1-your-key
 OPENAI_API_KEY=sk-or-v1-your-key
@@ -139,6 +143,8 @@ npm run dev                  # http://localhost:5173
 |--------|------|-------------|
 | GET | `/` | Server health + env status |
 | GET | `/api/health` | Detailed health check |
+| GET | `/api/ai-test` | AI provider/model/config status (no secrets) |
+| POST | `/api/ai-test` | Run a single live AI request (`{"prompt": "..."}`) for diagnostics |
 | ALL | `/api/auth/*` | Better Auth routes (sign-in, sign-up, OTP, OAuth) |
 | GET | `/api/project/published` | List published community websites |
 | GET | `/api/project/project/:projectId` | Get published project code |
@@ -195,8 +201,9 @@ All protected routes require a valid session cookie (handled by Better Auth).
 Uses **Better Auth** with two methods:
 
 - **Google OAuth** — Social sign-in via Google
+- **Email OTP** — Passwordless codes delivered via SMTP (Gmail)
 
-Sessions are managed with HTTP-only cookies (`httpOnly`, `secure` in production, `sameSite: none`).
+Sessions are managed with HTTP-only cookies: `httpOnly` always, plus `secure` and `sameSite: none` in production (needed for the Vercel frontend → Render API cross-site flow). In development they fall back to non-secure `sameSite: lax`.
 
 The `protect` middleware (`middlewares/auth.ts`) validates the session on every protected route.
 
@@ -216,24 +223,27 @@ PostgreSQL schema managed via Prisma:
 Uses the OpenAI SDK pointed at **OpenRouter** (`https://openrouter.ai/api/v1`).
 
 - Model: `gpt-oss-120b`
+- **Exactly one** AI request per user action — prompt expansion is folded into the single generation call (no separate enhancement request)
 - Each AI revision/edit costs **5 credits**
 - Credits are **auto-refunded** if the AI call fails
-- User prompts are **automatically enhanced** before being sent to the model
 - URLs in user prompts are **scraped** and injected as design references
 
 ## Deployment
 
-Deploy to Render / Railway / Fly.io:
+Deploy to Render (backend) — the frontend is a Vite SPA hosted on Vercel:
 
 1. Set the root directory to `Ai-Website-API`
 2. Build command: `npm run build`
 3. Start command: `npm start`
-4. Set all environment variables in the hosting dashboard
+4. Set all environment variables in the Render dashboard
+5. **Important — production cookie behavior:** Better Auth uses `SameSite=None; Secure` only when running in production. Render injects `RENDER=true` automatically, but if `NODE_ENV` is overridden to `development` in the dashboard, cross-site sessions break (cookies are not persisted for Vercel → Render requests). Ensure `NODE_ENV=production` (or leave `RENDER=true` set by Render) so OTP/Google sessions work from the Vercel frontend.
+6. Set `BETTER_AUTH_URL=https://ai-website-henna-eight.vercel.app` in production so auth callbacks point at the real frontend.
 
 ## Troubleshooting
 
 - **`BETTER_AUTH_SECRET is not set`** — Add it to `.env`. Generate one with `openssl rand -hex 32`
 - **Prisma connection error** — Verify `DATABASE_URL` and that the database accepts connections
-- **AI calls fail** — Check `AI_API_KEY` is valid and has credits on OpenRouter
-- **OTP emails not sent** — Verify `SMTP_USER` and `SMTP_PASS` (use a Gmail app password, not your regular password)
+- **AI calls fail** — Check `AI_API_KEY` is valid and has credits on OpenRouter; diagnose with `GET /api/ai-test` then `POST /api/ai-test` with a prompt
+- **OTP emails not sent** — Verify `SMTP_USER` and `SMTP_PASS` (use a Gmail app password, not your regular password). If SMTP is not configured the OTP request fails fast (returns success but logs the error and sends nothing) — never rely on OTP without valid SMTP
+- **Login works locally but not in production** — Check `/api/health` shows `nodeEnv` / `betterAuthUrl` matching production; if the cookie is missing cross-origin, confirm `NODE_ENV=production` and `RENDER=true` on Render so cookies are `SameSite=None; Secure`
 - **CORS blocking requests** — Ensure the frontend origin is in `TRUSTED_ORIGINS`

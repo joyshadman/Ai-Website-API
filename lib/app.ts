@@ -7,6 +7,7 @@ import userRoutes from "../routes/userRoutes.js";
 import projectRoutes from "../routes/ProjectRoutes.js";
 import editingRoutes from "../routes/editingRoutes.js";
 import websiteRoutes from "../routes/websiteRoutes.js";
+import { aiTestGet, aiTestPost } from "../controller/aiTestController.js";
 
 const app = express();
 const trustedOrigins = getTrustedOrigins();
@@ -51,6 +52,8 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
+app.get("/api/ai-test", aiTestGet);
+
 app.all("/api/auth/*splat", async (req, res) => {
   try {
     const { getAuth } = await import("./auth.js");
@@ -73,6 +76,8 @@ app.use("/api/user", userRoutes);
 app.use("/api/project", projectRoutes);
 app.use("/api/editing", editingRoutes);
 app.use(websiteRoutes);
+
+app.post("/api/ai-test", aiTestPost);
 
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err);

@@ -4,11 +4,11 @@ import { emailOTP } from "better-auth/plugins";
 import nodemailer from "nodemailer";
 import prisma from "./prisma.js";
 import { getTrustedOrigins, PRODUCTION_FRONTEND } from "./cors.js";
-import { getBetterAuthSecret } from "./env.js";
+import { getBetterAuthSecret, isProduction } from "./env.js";
 
 const googleClientId = process.env.GOOGLE_CLIENT_ID?.trim();
 const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim();
-const isProd = process.env.NODE_ENV === "production";
+const isProd = isProduction();
 
 const transporter = nodemailer.createTransport({
   service: "gmail",
@@ -16,6 +16,11 @@ const transporter = nodemailer.createTransport({
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
   },
+  // Fail fast instead of hanging the OTP request when Gmail SMTP is
+  // unreachable or credentials are rejected (seen in production).
+  connectionTimeout: 10000,
+  greetingTimeout: 10000,
+  socketTimeout: 15000,
 });
 
 type AuthInstance = ReturnType<typeof betterAuth>;
@@ -48,6 +53,14 @@ export function getAuth(): AuthInstance | null {
     plugins: [
       emailOTP({
         async sendVerificationOTP({ email, otp, type }) {
+          const smtpUser = process.env.SMTP_USER?.trim();
+          const smtpPass = process.env.SMTP_PASS?.trim();
+          if (!smtpUser || !smtpPass) {
+            throw new Error(
+              "SMTP is not configured: set SMTP_USER and SMTP_PASS to send OTP emails."
+            );
+          }
+
           const subject =
             type === "email-verification"
               ? "Verify your email"
@@ -58,7 +71,7 @@ export function getAuth(): AuthInstance | null {
                   : "Your verification code";
 
           await transporter.sendMail({
-            from: `"Your App Name" <${process.env.SMTP_USER}>`,
+            from: `"Apexium AI" <${smtpUser}>`,
             to: email,
             subject,
             html: `
