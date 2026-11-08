@@ -5,7 +5,7 @@
   "main": "server.ts",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "nodemon --exec tsx server.ts",
+    "dev": "nodemon --ext ts,json --ignore dist --exec tsx server.ts",
     "prebuild": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "build": "prisma generate && tsc",
     "start": "node dist/server.js",
@@ -17,6 +17,7 @@
   "license": "ISC",
   "type": "module",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1161.0",
     "@better-auth-ui/heroui": "^1.6.1",
     "@prisma/adapter-pg": "^7.7.0",
     "@prisma/client": "^7.8.0",
@@ -25,7 +26,9 @@
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "image-size": "^2.0.4",
     "jsdom": "^29.1.1",
+    "multer": "^2.5.0",
     "nodemailer": "^8.0.10",
     "nodemon": "^3.1.14",
     "openai": "^6.37.0",
@@ -35,6 +38,7 @@
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/jsdom": "^28.0.3",
+    "@types/multer": "^2.3.0",
     "@types/node": "^25.6.0",
     "@types/nodemailer": "^8.0.0",
     "@types/pg": "^8.20.0",

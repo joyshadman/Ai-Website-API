@@ -56,5 +56,5 @@
     "routes/**/*.ts",
     "types/**/*.ts"
   ],
-  "exclude": ["dist", "node_modules", "prisma.config.ts"]
+  "exclude": ["dist", "node_modules", "prisma.config.ts", "neon.ts"]
 }

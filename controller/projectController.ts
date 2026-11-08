@@ -1,8 +1,26 @@
 import { type Request, type Response } from "express";
 import prisma from '../lib/prisma.js';
-import openai, { assertAiKeyConfigured } from '../config/openai.js';
-import { htmlToComponents } from '../lib/htmlToSchema.js';
-import { extractHtmlCode } from '../lib/extractCode.js';
+import { rebuildPageData } from '../lib/htmlToSchema.js';
+import { MEDIA_PROMPT_RULE, deleteMediaKeys } from '../lib/media.js';
+import { cleanFavicon } from '../lib/siteStyles.js';
+import { usesTailwind } from '../lib/cssResolve.js';
+import { PLAIN_CSS_RULES } from '../lib/plainCssPrompt.js';
+import { ANIMATION_PROMPT_RULE, withAnimationBlocks } from '../lib/animations.js';
+import { EDIT_DESIGN_RULE } from '../lib/designPrompt.js';
+import {
+    deductCredits,
+    finalize,
+    getJob,
+    getLatestRunState,
+    recoverLostRun,
+    releaseJob,
+    reserveJob,
+    runGenerationJob,
+    stopJob,
+    visibleHtml,
+    writeStartMessages,
+    type GenerationJob,
+} from '../lib/generationJobs.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -52,12 +70,14 @@ async function buildReferenceBlock(message: string): Promise<string> {
 
 // ─── Shared system prompts ────────────────────────────────────────────────────
 
-const CODE_GEN_SYSTEM_PROMPT = `You are an expert web developer.
+export const CODE_GEN_SYSTEM_PROMPT = `You are an expert web developer.
 
 CRITICAL REQUIREMENTS:
 - Return ONLY a complete, valid, and updated standalone HTML document.
-- Use Tailwind CSS ONLY for styling (no custom CSS, no <style> blocks).
+- Use Tailwind CSS ONLY for styling (no custom CSS, no <style> blocks, except the data-apexium-* blocks, which you keep unchanged).
 - All UI styling must use Tailwind utility classes.
+${ANIMATION_PROMPT_RULE}
+${MEDIA_PROMPT_RULE}
 - Include all JavaScript inside <script> tags before </body>.
 - Ensure mobile-first responsive design (sm, md, lg breakpoints).
 - Maintain clean semantic HTML structure.
@@ -81,11 +101,40 @@ REFERENCE CONTENT RULES:
 
 Apply the requested changes while preserving existing structure unless explicitly asked to replace it.`;
 
+// Plain CSS projects (spec 0003); the Tailwind prompt above stays for legacy projects.
+export const PLAIN_CSS_EDIT_PROMPT = `You are an expert web developer.
+
+CRITICAL REQUIREMENTS:
+- Return ONLY a complete, valid, and updated standalone HTML document.
+- Keep the existing <head> stylesheet and extend it: reuse its custom properties and class names, and add new classes only when needed.
+- The document may contain a <style data-apexium-site> block, a <style data-apexium-elements> block with [data-c="..."] rules, and matching data-c attributes (written by the visual editor). Keep both blocks and every data-c attribute. A [data-c="..."] rule overrides the class rules for that element, so to change how such an element looks, edit its [data-c="..."] rule. These blocks (and the data-apexium-anim style below) are the only exceptions to the one <style> rule below.
+${ANIMATION_PROMPT_RULE}
+${MEDIA_PROMPT_RULE}
+${EDIT_DESIGN_RULE}
+- Do NOT include explanations, comments, or markdown — ONLY HTML.
+- If the user's request is brief or vague, silently expand it into a detailed specification as you generate (concrete sections, layout, colors, typography, interactions). Never return the specification text itself — only the final HTML.
+
+${PLAIN_CSS_RULES}
+
+IMAGE HANDLING RULES (IMPORTANT):
+- If images are required, use CDN-hosted image URLs only.
+- Make images responsive in the stylesheet (width: 100%; height: auto; object-fit: cover).
+- Use lazy loading (loading="lazy") and explicit width and height attributes on every <img>.
+
+REFERENCE CONTENT RULES:
+- If REFERENCE CONTENT is provided below the user request, use it as design/layout inspiration.
+- Mirror the structure, color palette, typography style, and section layout from the reference.
+- Do NOT copy any text content verbatim from references — only use them for visual/design guidance.
+
+Apply the requested changes while preserving existing structure unless explicitly asked to replace it.`;
+
 // ─── Controllers ─────────────────────────────────────────────────────────────
 
-// Controller function to make Revision
-export const makeRevision = async (req: Request, res: Response) => {
+// Shared start order for chat edits and revisions (spec 0001): responds 202
+// right away and runs the AI call in the background job runner.
+async function startEditRun(req: Request, res: Response, versionDescription: (message: string) => string) {
     const userid = req.userId;
+    let job: GenerationJob | null = null;
     try {
         const { projectId } = req.params;
         const { message } = req.body;
@@ -94,132 +143,158 @@ export const makeRevision = async (req: Request, res: Response) => {
             return res.status(401).json({ error: 'Unauthorized' });
         }
 
-        const user = await prisma.user.findUnique({
-            where: { id: userid },
-        });
-
-        if (!user) {
-            return res.status(401).json({ error: 'Unauthorized' });
-        }
-
-        if (user.credits < 5) {
-            return res.status(403).json({ error: 'User cannot make a revision with insufficient credit' });
-        }
-
-        if (!message || message.trim() === '') {
+        if (typeof message !== 'string' || message.trim() === '') {
             return res.status(400).json({ error: 'Please provide a valid prompt.' });
         }
 
         const projectIdStr = typeof projectId === 'string' ? projectId : String(projectId ?? '');
 
-        const currentProject = await prisma.websiteProject.findUnique({
+        const project = await prisma.websiteProject.findFirst({
             where: { id: projectIdStr, userId: userid },
-            include: { versions: true },
+            select: { id: true, current_code: true },
         });
 
-        if (!currentProject) {
+        if (!project) {
             return res.status(404).json({ error: 'Project not found' });
         }
 
-        await prisma.conversation.create({
-            data: {
-                role: 'user',
-                content: message,
-                projectId: projectIdStr
-            },
-        });
+        await recoverLostRun(projectIdStr, userid);
 
-        await prisma.user.update({
-            where: { id: userid },
-            data: { credits: { decrement: 5 } },
-        });
+        const reserved = reserveJob(projectIdStr, userid, 'edit', versionDescription(message));
+        if (reserved === 409) {
+            return res.status(409).json({ error: 'A generation is already running for this project.' });
+        }
+        if (reserved === 429) {
+            return res.status(429).json({ error: 'You already have 2 generations running. Please wait for one to finish.' });
+        }
+        job = reserved;
 
-        assertAiKeyConfigured();
+        if (!(await deductCredits(job))) {
+            releaseJob(job);
+            return res.status(403).json({ error: 'Insufficient credits to edit project.' });
+        }
 
-        // Build reference block from any URLs in the message
-        const referenceBlock = await buildReferenceBlock(message);
+        await writeStartMessages(job, message);
 
-        await prisma.conversation.create({
-            data: {
-                role: 'assistant',
-                content: 'Now making Changes to your website...',
-                projectId: projectIdStr
-            },
-        });
+        res.status(202).json({ message: 'Edit started', runId: job.runId });
 
-        // Single AI request per action — the generation prompt expands the user
-        // request itself. No separate enhance round-trip and no model fallback.
-        const codeGenerationResponse = await openai.chat.completions.create({
-            model: 'gpt-oss-120b',
-            messages: [
+        const currentCode = project.current_code ?? '';
+        // Legacy Tailwind projects keep the Tailwind prompt (spec 0003 AC-2).
+        const plainCss = !usesTailwind(currentCode);
+        job.plainCss = plainCss;
+        void runGenerationJob(job, async () => {
+            // Reference fetching runs inside the job so it never delays the response.
+            const referenceBlock = await buildReferenceBlock(message);
+            return [
                 {
                     role: 'system',
-                    content: CODE_GEN_SYSTEM_PROMPT,
+                    content: plainCss ? PLAIN_CSS_EDIT_PROMPT : CODE_GEN_SYSTEM_PROMPT,
                 },
                 {
                     role: 'user',
                     content: `CURRENT WEBSITE CODE:
-${currentProject.current_code}
+${currentCode}
 
 USER REQUEST:
 ${message}${referenceBlock}
 
 TASK:
-Modify the existing website code according to the request while keeping it fully functional and Tailwind-based. Return only the final updated HTML.`,
+Modify the existing website code according to the request while keeping it fully functional and ${plainCss ? 'in plain HTML and CSS (no Tailwind)' : 'Tailwind-based'}. Return only the final updated HTML.`,
                 },
-            ],
+            ];
         });
+    } catch (error: any) {
+        if (job) await finalize(job, 'failed');
+        console.error('Start edit error:', error);
+        if (!res.headersSent) {
+            res.status(500).json({ message: error.code || error.message });
+        }
+    }
+}
 
-        const rawCode = codeGenerationResponse.choices[0]?.message?.content ?? '';
+// Controller function to make Revision
+export const makeRevision = (req: Request, res: Response) =>
+    startEditRun(req, res, () => 'changes made');
 
-        const cleanCode = extractHtmlCode(rawCode);
-        if (!cleanCode) {
-            // Abort before persisting: empty/invalid output must not overwrite
-            // the existing code or create a broken version.
-            throw new Error('AI returned empty or invalid HTML; nothing was saved.');
+// Controller to edit project by prompt
+export const editProjectByPrompt = (req: Request, res: Response) =>
+    startEditRun(req, res, (message) => `Prompt edit: ${message.slice(0, 80)}`);
+
+// Controller for live generation progress: the HTML written after `from`
+export const getGenerationProgress = async (req: Request, res: Response) => {
+    try {
+        const userid = req.userId;
+        if (!userid) {
+            return res.status(401).json({ error: 'Unauthorized' });
         }
 
-        const version = await prisma.version.create({
-            data: {
-                code: cleanCode,
-                description: 'changes made',
-                projectId: projectIdStr
-            }
+        const { projectId } = req.params;
+        const projectIdStr = typeof projectId === 'string' ? projectId : String(projectId ?? '');
+
+        const project = await prisma.websiteProject.findFirst({
+            where: { id: projectIdStr, userId: userid },
+            select: { id: true },
         });
 
-        await prisma.conversation.create({
-            data: {
-                role: 'assistant',
-                content: "I've made the changes to your website! You can now preview it",
-                projectId: projectIdStr
-            }
-        });
+        if (!project) {
+            return res.status(404).json({ error: 'Project not found' });
+        }
 
-        const components = htmlToComponents(cleanCode);
-        const pageData = JSON.stringify({
-            pages: [{ id: 'page-1', name: 'Home', slug: '/', components }],
-            globalStyles: {}
-        });
+        await recoverLostRun(projectIdStr, userid);
 
-        await prisma.websiteProject.update({
-            where: { id: projectIdStr },
-            data: {
-                current_code: cleanCode,
-                current_version_index: version.id,
-                pageData,
-            }
-        });
+        const fromParam = typeof req.query.from === 'string' ? Number.parseInt(req.query.from, 10) : 0;
+        const clientRunId = typeof req.query.runId === 'string' ? req.query.runId : '';
 
-        res.json({ message: 'Revision made successfully', versionId: version.id });
-    } catch (error: any) {
-        // Refund credits on failure
-        if (userid) {
-            await prisma.user.update({
-                where: { id: userid },
-                data: { credits: { increment: 5 } },
+        const job = getJob(projectIdStr);
+        if (job) {
+            const visible = visibleHtml(job);
+            const offset = visible.length;
+            // A different run than the client knows about starts from the beginning.
+            const from = clientRunId !== job.runId || !Number.isFinite(fromParam) || fromParam < 0 ? 0 : fromParam;
+            return res.json({
+                status: 'running',
+                runId: job.runId,
+                phase: job.phase,
+                html: from >= offset ? '' : visible.slice(from),
+                offset,
             });
         }
-        console.error('Make revision error:', error);
+
+        const { runId, outcome } = await getLatestRunState(projectIdStr);
+        res.json({ status: 'idle', runId, html: '', offset: 0, outcome });
+    } catch (error: any) {
+        console.error('Generation progress error:', error);
+        res.status(500).json({ message: error.code || error.message });
+    }
+};
+
+// Controller to stop a running generation (credits are refunded by the job)
+export const stopGeneration = async (req: Request, res: Response) => {
+    try {
+        const userid = req.userId;
+        if (!userid) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+
+        const { projectId } = req.params;
+        const projectIdStr = typeof projectId === 'string' ? projectId : String(projectId ?? '');
+
+        const project = await prisma.websiteProject.findFirst({
+            where: { id: projectIdStr, userId: userid },
+            select: { id: true },
+        });
+
+        if (!project) {
+            return res.status(404).json({ error: 'Project not found' });
+        }
+
+        if (!stopJob(projectIdStr)) {
+            return res.status(409).json({ error: 'Nothing is running for this project.' });
+        }
+
+        res.status(202).json({ message: 'Stopping generation' });
+    } catch (error: any) {
+        console.error('Stop generation error:', error);
         res.status(500).json({ message: error.code || error.message });
     }
 };
@@ -253,11 +328,8 @@ export const rollbackToVersion = async (req: Request, res: Response) => {
             return res.status(404).json({ error: 'Version not found' });
         }
 
-        const rollbackComponents = htmlToComponents(version.code);
-        const rollbackPageData = JSON.stringify({
-            pages: [{ id: 'page-1', name: 'Home', slug: '/', components: rollbackComponents }],
-            globalStyles: {}
-        });
+        // The current favicon survives a rollback (spec 0006 AC-11).
+        const rollbackPageData = JSON.stringify(rebuildPageData(version.code, project.pageData));
 
         await prisma.websiteProject.update({
             where: { id: projectIdStr, userId: userid },
@@ -302,12 +374,17 @@ export const deleteProject = async (req: Request, res: Response) => {
             return res.status(404).json({ error: 'Project not found' });
         }
 
+        // Read the media keys first: the rows cascade away with the project (spec 0006 AC-9).
+        const assets = await prisma.asset.findMany({ where: { projectId: projectIdStr }, select: { key: true } });
+
         await prisma.conversation.deleteMany({ where: { projectId: projectIdStr } });
         await prisma.version.deleteMany({ where: { projectId: projectIdStr } });
 
         await prisma.websiteProject.delete({
             where: { id: projectIdStr },
         });
+
+        await deleteMediaKeys(assets.map(a => a.key), `delete project ${projectIdStr}`);
 
         res.json({ message: 'Project deleted successfully' });
     } catch (error: any) {
@@ -373,7 +450,10 @@ export const getProjectById = async (req: Request, res: Response) => {
             return res.status(404).json({ error: 'Project not found' });
         }
 
-        res.json({ code: project.current_code });
+        // The public view sets the visitor's tab icon from this (spec 0006 AC-3).
+        let favicon = '';
+        try { favicon = cleanFavicon(JSON.parse(project.pageData || '{}')?.globalStyles?.favicon) ?? ''; } catch { /* no stored styles */ }
+        res.json({ code: project.current_code, favicon });
     } catch (error: any) {
         console.log(error.code || error.message);
         res.status(500).json({ message: error.message });
@@ -406,129 +486,18 @@ export const saveProjectCode = async (req: Request, res: Response) => {
 
         await prisma.websiteProject.update({
             where: { id: projectIdStr, userId: userid },
-            data: { current_code: code, current_version_index: '' }
+            // Raw HTML saves rebuild pageData too, so the editor never opens a stale copy (AC-10).
+            // Raw HTML gets the preset blocks too, so presets in it play (spec 0007 AC-6).
+            data: (() => {
+                const html = withAnimationBlocks(code);
+                return { current_code: html, current_version_index: '', pageData: JSON.stringify(rebuildPageData(html, project.pageData)) };
+            })()
         });
 
         res.json({ message: 'Project code saved successfully' });
     } catch (error: any) {
         console.log(error.code || error.message);
         res.status(500).json({ message: error.message });
-    }
-};
-
-// Controller to edit project by prompt
-export const editProjectByPrompt = async (req: Request, res: Response) => {
-    const userid = req.userId;
-    try {
-        const { projectId } = req.params;
-        const { message } = req.body;
-
-        if (!userid) {
-            return res.status(401).json({ error: 'Unauthorized' });
-        }
-
-        if (!message || message.trim() === '') {
-            return res.status(400).json({ error: 'Please provide a valid prompt.' });
-        }
-
-        const user = await prisma.user.findUnique({
-            where: { id: userid },
-        });
-
-        if (!user) {
-            return res.status(401).json({ error: 'Unauthorized' });
-        }
-
-        if (user.credits < 5) {
-            return res.status(403).json({ error: 'Insufficient credits to edit project.' });
-        }
-
-        const projectIdStr = typeof projectId === 'string' ? projectId : String(projectId ?? '');
-
-        const project = await prisma.websiteProject.findUnique({
-            where: { id: projectIdStr, userId: userid },
-        });
-
-        if (!project) {
-            return res.status(404).json({ error: 'Project not found' });
-        }
-
-        await prisma.user.update({
-            where: { id: userid },
-            data: { credits: { decrement: 5 } },
-        });
-
-        assertAiKeyConfigured();
-
-        // Build reference block from any URLs in the message
-        const referenceBlock = await buildReferenceBlock(message);
-
-        // Single AI request per action — the generation prompt expands the user
-        // request itself. No separate enhance round-trip and no model fallback.
-        const codeResponse = await openai.chat.completions.create({
-            model: 'gpt-oss-120b',
-            messages: [
-                {
-                    role: 'system',
-                    content: CODE_GEN_SYSTEM_PROMPT,
-                },
-                {
-                    role: 'user',
-                    content: `CURRENT WEBSITE CODE:
-${project.current_code}
-
-USER REQUEST:
-${message}${referenceBlock}
-
-TASK:
-Modify the existing website code according to the request while keeping it fully functional and Tailwind-based. Return only the final updated HTML.`,
-                },
-            ],
-        });
-
-        const rawCode = codeResponse.choices[0]?.message?.content ?? '';
-
-        const cleanCode = extractHtmlCode(rawCode);
-        if (!cleanCode) {
-            // Abort before persisting: empty/invalid output must not overwrite
-            // the existing code or create a broken version.
-            throw new Error('AI returned empty or invalid HTML; nothing was saved.');
-        }
-
-        const version = await prisma.version.create({
-            data: {
-                code: cleanCode,
-                description: `Prompt edit: ${message.slice(0, 80)}`,
-                projectId: projectIdStr,
-            },
-        });
-
-        const components = htmlToComponents(cleanCode);
-        const pageData = JSON.stringify({
-            pages: [{ id: 'page-1', name: 'Home', slug: '/', components }],
-            globalStyles: {}
-        });
-
-        await prisma.websiteProject.update({
-            where: { id: projectIdStr },
-            data: {
-                current_code: cleanCode,
-                current_version_index: version.id,
-                pageData,
-            },
-        });
-
-        res.json({ message: 'Project updated successfully', versionId: version.id });
-    } catch (error: any) {
-        // Refund credits on failure
-        if (userid) {
-            await prisma.user.update({
-                where: { id: userid },
-                data: { credits: { increment: 5 } },
-            });
-        }
-        console.error('Edit project by prompt error:', error);
-        res.status(500).json({ message: error.code || error.message });
     }
 };
 

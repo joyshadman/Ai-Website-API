@@ -25,7 +25,7 @@ export function getBetterAuthUrl(): string {
     if (!isApiHost(normalized)) return normalized;
   }
   if (isProduction()) return PRODUCTION_FRONTEND;
-  return "http://localhost:5173";
+  return "http://localhost:5174";
 }
 
 export function getBetterAuthSecret(): string {
@@ -50,6 +50,9 @@ export function getEnvStatus() {
     hasOpenAiKey: Boolean(process.env.OPENAI_API_KEY?.trim()),
     hasSmtpUser: Boolean(process.env.SMTP_USER?.trim()),
     hasSmtpPass: Boolean(process.env.SMTP_PASS?.trim()),
+    // Media storage (spec 0006): the Neon branch S3 credentials plus the bucket name.
+    hasMediaStorage: ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_ENDPOINT_URL_S3", "AWS_REGION", "MEDIA_BUCKET"]
+      .every(name => Boolean(process.env[name]?.trim())),
     nodeEnv: process.env.NODE_ENV ?? "unknown",
   };
 }

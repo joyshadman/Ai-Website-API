@@ -103,10 +103,12 @@ export function getAuth(): AuthInstance | null {
     baseURL: {
       allowedHosts: [
         "localhost:5173",
+        "localhost:5174",
         "localhost:3000",
         "localhost:4173",
         "localhost:5000",
         "127.0.0.1:5173",
+        "127.0.0.1:5174",
         "127.0.0.1:3000",
         "ai-website-henna-eight.vercel.app",
       ],

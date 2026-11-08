@@ -1,6 +1,8 @@
 import { type Request, type Response } from "express";
 import prisma from '../lib/prisma.js';
-import { componentsToHtml } from '../lib/htmlToSchema.js';
+import { componentsToHtml, htmlToPageData, toPages } from '../lib/htmlToSchema.js';
+import { mergeSiteStyles } from '../lib/siteStyles.js';
+import { deleteMediaKeys } from '../lib/media.js';
 
 export const getWebsite = async (req: Request, res: Response) => {
   const { id } = req.params;
@@ -51,17 +53,18 @@ export const updateWebsite = async (req: Request, res: Response) => {
       const incomingPages = parsedPageData?.pages ?? (Array.isArray(parsedPageData) ? parsedPageData : undefined);
       const incomingGlobalStyles = parsedPageData?.globalStyles ?? globalStyles;
 
+      // globalStyles merges by key and never loses `mode` or `css`, so an old
+      // client posting `globalStyles: {}` changes nothing (spec 0003 AC-10).
       const merged = {
         pages: incomingPages !== undefined ? incomingPages : (existing.pages || []),
-        globalStyles: incomingGlobalStyles !== undefined ? incomingGlobalStyles : (existing.globalStyles || {})
+        globalStyles: mergeSiteStyles(existing.globalStyles, incomingGlobalStyles)
       };
       data.pageData = JSON.stringify(merged);
 
       // Keep current_code in sync so Builder/Community previews reflect the
       // saved component tree (mirrors editingController.saveEditorPage).
       if (Array.isArray(merged.pages)) {
-        const allComponents = merged.pages.flatMap((p: any) => p.components || []);
-        data.current_code = componentsToHtml(allComponents);
+        data.current_code = componentsToHtml(toPages(merged), merged.globalStyles);
       }
     }
 
@@ -93,9 +96,14 @@ export const deleteWebsite = async (req: Request, res: Response) => {
     });
     if (!project) return res.status(404).json({ error: 'Website not found' });
 
+    // Read the media keys first: the rows cascade away with the project (spec 0006 AC-9).
+    const assets = await prisma.asset.findMany({ where: { projectId: project.id }, select: { key: true } });
+
     await prisma.conversation.deleteMany({ where: { projectId: project.id } });
     await prisma.version.deleteMany({ where: { projectId: project.id } });
     await prisma.websiteProject.delete({ where: { id: project.id } });
+
+    await deleteMediaKeys(assets.map(a => a.key), `delete website ${project.id}`);
 
     res.json({ message: 'Website deleted successfully' });
   } catch (error: any) {
@@ -117,6 +125,15 @@ export const getEditorWebsite = async (req: Request, res: Response) => {
     let pageData: any = {};
     try { pageData = JSON.parse((project as any).pageData || '{}'); } catch { pageData = {}; }
 
+    // Auto-convert: HTML but no components anywhere yet → import it with its site styles (spec 0003 AC-10)
+    if (toPages(pageData).every(p => !p.components?.length) && (project as any).current_code) {
+      pageData = htmlToPageData((project as any).current_code);
+      await prisma.websiteProject.update({
+        where: { id: project.id },
+        data: { pageData: JSON.stringify(pageData) } as any
+      });
+    }
+
     // Auto-convert legacy: if pageData has no pages but has components, wrap into pages
     if ((!pageData.pages || pageData.pages.length === 0) && pageData.components) {
       pageData = {
@@ -136,7 +153,7 @@ export const getEditorWebsite = async (req: Request, res: Response) => {
       ? pageData.pages
       : [{ id: 'page-1', name: 'Home', slug: '/', components: [] }];
 
-    res.json({ websiteId: project.id, name: project.name, pages });
+    res.json({ websiteId: project.id, name: project.name, pages, globalStyles: pageData.globalStyles || {} });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }

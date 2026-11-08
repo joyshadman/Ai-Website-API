@@ -24,6 +24,7 @@ model User {
   sessions     Session[]
   accounts     Account[]
   transactions Transaction[]
+  assets       Asset[]
 
   @@map("user")
 }
@@ -41,6 +42,7 @@ model WebsiteProject {
   // Relations
   conversation Conversation[]
   versions     Version[]
+  assets       Asset[]
   user         User           @relation(fields: [userId], references: [id])
 
   createdAt DateTime @default(now())
@@ -50,6 +52,32 @@ model WebsiteProject {
 enum Role {
   user
   assistant
+}
+
+enum AssetKind {
+  image
+  file
+}
+
+// Uploaded media (spec 0006). The file lives in object storage at `key`; its URL is always `/media/<key>`.
+model Asset {
+  id        String    @id @default(uuid())
+  projectId String
+  userId    String
+  kind      AssetKind @default(image)
+  key       String    @unique
+  fileName  String    @default("")
+  mimeType  String    @default("")
+  size      Int
+  width     Int?
+  height    Int?
+  alt       String    @default("")
+  createdAt DateTime  @default(now())
+
+  project WebsiteProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
 }
 
 model Conversation {

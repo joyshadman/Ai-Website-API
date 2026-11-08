@@ -1,6 +1,10 @@
 import { type Request, type Response } from "express";
 import prisma from '../lib/prisma.js';
-import { htmlToComponents, componentsToHtml } from '../lib/htmlToSchema.js';
+import { htmlToPageData, componentsToHtml, toPages } from '../lib/htmlToSchema.js';
+import { mergeSiteStyles } from '../lib/siteStyles.js';
+
+/** Rebuild from HTML only when there are no pages yet, so saved pages and `globalStyles` survive (spec 0003 AC-10). */
+const hasNoPages = (pageData: any) => toPages(pageData).every(p => !p.components?.length);
 export const getAvailableTools = async (_req: Request, res: Response) => {
   try {
     res.json({
@@ -37,16 +41,13 @@ export const getEditorPage = async (req: Request, res: Response) => {
     let pageData: any;
     try { pageData = JSON.parse((project as any).pageData || '{}'); } catch { pageData = {}; }
 
-    // Auto-convert legacy projects: if pageData is empty but HTML exists, convert it
-    if ((!pageData.components || pageData.components.length === 0) && (project as any).current_code) {
-      const components = htmlToComponents((project as any).current_code);
-      if (components.length > 0) {
-        pageData = { components };
-        await prisma.websiteProject.update({
-          where: { id: project.id },
-          data: { pageData: JSON.stringify(pageData) } as any
-        });
-      }
+    // Auto-convert projects that have HTML but no pages yet
+    if (hasNoPages(pageData) && (project as any).current_code) {
+      pageData = htmlToPageData((project as any).current_code);
+      await prisma.websiteProject.update({
+        where: { id: project.id },
+        data: { pageData: JSON.stringify(pageData) } as any
+      });
     }
 
     res.json({ project: { ...project, pageData } });
@@ -62,15 +63,15 @@ export const saveEditorPage = async (req: Request, res: Response) => {
   try {
     const data: any = {};
     if (pageData !== undefined) {
-      data.pageData = JSON.stringify(pageData);
-      // Support multi-page format: flatten components from all pages
-      if (pageData.pages && Array.isArray(pageData.pages)) {
-        const allComponents = pageData.pages.flatMap((p: any) => p.components || []);
-        data.current_code = componentsToHtml(allComponents);
-      } else {
-        const components = pageData.components || pageData;
-        data.current_code = componentsToHtml(components);
-      }
+      const project = await prisma.websiteProject.findFirst({ where: { id: String(projectId ?? ''), userId: userid } });
+      if (!project) return res.status(404).json({ error: 'Project not found' });
+      let stored: any = {};
+      try { stored = JSON.parse((project as any).pageData || '{}'); } catch { stored = {}; }
+      // Pages publish as one document; a legacy { components } body maps to one page.
+      const pages = toPages(pageData);
+      const globalStyles = mergeSiteStyles(stored.globalStyles, pageData?.globalStyles);
+      data.pageData = JSON.stringify({ pages, globalStyles });
+      data.current_code = componentsToHtml(pages, globalStyles);
     }
     if (name !== undefined) data.name = name;
     const project = await prisma.websiteProject.update({
@@ -125,12 +126,9 @@ export const getEditorPagePublic = async (req: Request, res: Response) => {
     let pageData: any;
     try { pageData = JSON.parse((project as any).pageData || '{}'); } catch { pageData = {}; }
 
-    // Auto-convert legacy published projects
-    if ((!pageData.components || pageData.components.length === 0) && (project as any).current_code) {
-      const components = htmlToComponents((project as any).current_code);
-      if (components.length > 0) {
-        pageData = { components };
-      }
+    // Auto-convert published projects that have HTML but no pages yet
+    if (hasNoPages(pageData) && (project as any).current_code) {
+      pageData = htmlToPageData((project as any).current_code);
     }
 
     res.json({ project: { id: project.id, name: project.name, pageData } });

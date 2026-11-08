@@ -1,5 +1,14 @@
 import { JSDOM } from 'jsdom';
 import crypto from 'crypto';
+import {
+  LINKABLE_TYPES, PAGE_SWITCHER_SCRIPT, cleanDownloadName, escapeAttr, isMediaFileUrl, isValidAnchor, linkFromHref, normalizeUrl, walkComponents,
+  type ElementLink, type NavItem, type Page,
+} from './links.js';
+import { resolveStylesheets, usesTailwind } from './cssResolve.js';
+import { directionFromHtml } from './designChecks.js';
+import { LIMITS, cleanClassName, cleanFavicon, keepDirection, keepFavicon, elementAttrs, isFontLink, siteDocument, type ExportState, type SiteStyles } from './siteStyles.js';
+import { animationFromElement, type ElementAnimation } from './animations.js';
+import { LOGO_ATTR, logoFromHtml, logoMarkup } from './logo.js';
 
 const uid = () => crypto.randomUUID();
 
@@ -11,7 +20,9 @@ export type ComponentType =
   | 'hero' | 'navbar' | 'footer'
   | 'contact-form' | 'newsletter-form'
   | 'gallery' | 'slider' | 'carousel'
-  | 'map' | 'code-block' | 'html-embed';
+  | 'map' | 'code-block' | 'html-embed'
+  /** Draws `globalStyles.logo` (spec 0008); no props of its own, nothing when the site has no logo. */
+  | 'logo';
 
 export interface StyleProperties {
   margin?: string; padding?: string;
@@ -47,6 +58,25 @@ export interface EditorComponent {
   draggable?: boolean;
   deletable?: boolean;
   hidden?: boolean;
+  link?: ElementLink;
+  anchor?: string;
+  navItems?: NavItem[];
+  ctaLink?: ElementLink;
+  /** Plain CSS projects: the element's original `class` (spec 0003). Never in `props`. */
+  className?: string;
+  /** Entrance and hover presets (spec 0004); never on `html-embed`. */
+  animation?: ElementAnimation;
+}
+
+/** Collects `<a href>` values during import; resolved once the whole tree exists. */
+interface ImportCtx {
+  pageId: string;
+  anchors: Map<string, { id: string; pageId: string }>;
+  pending: { href: string | null; download?: string | null; assign: (link: ElementLink) => void }[];
+  /** Plain CSS path (spec 0003): no Tailwind class parsing, hero and footer keep children. */
+  css: boolean;
+  /** Source element of every component, for the stylesheet resolver. */
+  elements: Map<Element, EditorComponent>;
 }
 
 function kebabToCamel(str: string): string {
@@ -194,6 +224,16 @@ function getContentText(el: Element): string {
   return '';
 }
 
+/** Content text with any logo marker removed, so an SVG `<title>` never becomes a brand name. */
+function textWithoutLogo(el: Element): string {
+  if (!el.querySelector(`[${LOGO_ATTR}]`)) return getContentText(el);
+  const copy = el.cloneNode(true) as Element;
+  copy.querySelectorAll(`[${LOGO_ATTR}]`).forEach(m => m.remove());
+  return getContentText(copy);
+}
+
+const inLogo = (el: Element): boolean => el.closest(`[${LOGO_ATTR}]`) !== null;
+
 function getImgSrc(el: Element): string {
   return el.getAttribute('src') || 'https://placehold.co/600x400';
 }
@@ -238,7 +278,10 @@ function isHero(el: Element): boolean {
 function isForm(el: Element): boolean {
   const tag = el.tagName.toLowerCase();
   if (tag === 'form') return true;
-  return getClassString(el).includes('form') || getClassString(el).includes('contact');
+  // A "contact" or "form" class only counts when real form fields are inside; a contact section with
+  // just text and links stays a section, so its content and presets survive an editor save (spec 0007 AC-7).
+  const cls = getClassString(el);
+  return (cls.includes('form') || cls.includes('contact')) && el.querySelector('form, input, textarea, select') !== null;
 }
 
 function isList(el: Element): boolean {
@@ -287,7 +330,8 @@ function detectComponentType(el: Element, depth: number): { type: ComponentType;
     case 'button':
       return { type: 'button', name: 'Button' };
     case 'a':
-      return { type: 'button', name: 'Link Button' };
+      // An <a> wrapping elements is a linked block, a text only <a> a linked button.
+      return el.children.length > 0 ? { type: 'container', name: 'Link Block' } : { type: 'button', name: 'Link Button' };
     case 'img':
       return { type: 'image', name: 'Image' };
     case 'iframe':
@@ -325,7 +369,8 @@ function detectComponentType(el: Element, depth: number): { type: ComponentType;
         const imgChildren = Array.from(el.children).filter(c => c.tagName === 'IMG');
         if (imgChildren.length >= 3) return { type: 'gallery', name: 'Gallery' };
         if (isCard(el)) return { type: 'card', name: 'Card' };
-        if (getClassString(el).includes('icon') || el.querySelector('svg')) return { type: 'icon', name: 'Icon' };
+        // A logo marker's SVG does not make its brand wrapper an icon (spec 0008).
+        if (getClassString(el).includes('icon') || Array.from(el.querySelectorAll('svg')).some(svg => !inLogo(svg))) return { type: 'icon', name: 'Icon' };
         if (depth === 0 && childDivs.length >= 2 && (getClassString(el).includes('container') || hasContainerStructure(el))) {
           return { type: 'container', name: 'Container' };
         }
@@ -349,9 +394,11 @@ function extractTextContent(el: Element): Record<string, any> {
     case 'p': case 'span':
       props.text = getContentText(el);
       break;
-    case 'button': case 'a':
+    case 'button':
       props.text = getContentText(el) || 'Button';
-      props.link = el.getAttribute('href') || '#';
+      break;
+    case 'a':
+      if (el.children.length === 0) props.text = getContentText(el) || 'Button';
       break;
     case 'img':
       props.src = el.getAttribute('src') || '';
@@ -371,22 +418,30 @@ function extractTextContent(el: Element): Record<string, any> {
       props.src = el.getAttribute('src') || '';
       break;
     default:
-      if (tag === 'nav') {
-        const brandEl = el.querySelector('a, span, div');
-        props.brand = brandEl ? getContentText(brandEl) || 'Logo' : 'Logo';
-        const links: string[] = [];
-        el.querySelectorAll('a').forEach(a => { const t = getContentText(a); if (t) links.push(t); });
-        props.links = links.length > 0 ? links.join(',') : 'Home,About,Contact';
-      }
       break;
   }
 
   return props;
 }
 
-function elementToComponent(el: Element, depth: number = 0): EditorComponent | null {
+function elementToComponent(el: Element, depth: number, ctx: ImportCtx): EditorComponent | null {
   const tag = el.tagName?.toLowerCase?.() || '';
   if (tag === 'script' || tag === 'style' || tag === 'meta' || tag === 'link' || tag === 'head') return null;
+
+  // A logo marker becomes a `logo` component; its SVG lives once in `globalStyles.logo` (spec 0008).
+  if (el.hasAttribute(LOGO_ATTR)) {
+    const logo: EditorComponent = {
+      id: uid(), type: 'logo', name: 'Logo', props: {},
+      styles: { desktop: {}, tablet: {}, mobile: {} },
+      children: [], editable: true, draggable: true, deletable: true,
+    };
+    if (ctx.css) {
+      const cls = cleanClassName(el.getAttribute('class'));
+      if (cls) logo.className = cls;
+    }
+    ctx.elements.set(el, logo);
+    return logo;
+  }
 
   let type: ComponentType;
   let name: string;
@@ -399,25 +454,48 @@ function elementToComponent(el: Element, depth: number = 0): EditorComponent | n
     type = 'container';
     name = 'Container';
   }
+  // Plain CSS sites keep the hero's and footer's real children (spec 0003 AC-6).
+  if (ctx.css && (type === 'hero' || type === 'footer')) {
+    name = type === 'hero' ? 'Hero' : 'Footer';
+    type = 'section';
+  }
 
   const inlineStyles = parseInlineStyles(el.getAttribute('style') || '');
-  const classStyles = parseClasses(getClassString(el));
-  const mergedStyles = mergeStyles(classStyles, inlineStyles);
+  const mergedStyles = ctx.css ? inlineStyles : mergeStyles(parseClasses(getClassString(el)), inlineStyles);
 
   const props = extractTextContent(el);
 
+  let navItems: NavItem[] | undefined;
+  let heroCta: Element | undefined;
   if (type === 'navbar' || type === 'footer' || type === 'hero' || type === 'contact-form') {
-    if (type === 'navbar' && !props.brand) {
-      props.brand = 'Logo';
-      props.links = 'Home,About,Contact';
+    if (type === 'navbar') {
+      // The first a/span/div outside a logo marker is the brand; every other <a> becomes a nav item.
+      const brandEl = Array.from(el.querySelectorAll('a, span, div')).find(e => !inLogo(e));
+      props.brand = brandEl ? textWithoutLogo(brandEl) || 'Logo' : 'Logo';
+      // The navbar is a leaf, so a marker in its brand becomes a flag (spec 0008).
+      if (el.querySelector(`[${LOGO_ATTR}]`)) props.brandLogo = true;
+      navItems = [];
+      for (const a of Array.from(el.querySelectorAll('a'))) {
+        if (a === brandEl || inLogo(a)) continue;
+        const label = textWithoutLogo(a);
+        if (!label) continue;
+        const item: NavItem = { id: uid(), label };
+        navItems.push(item);
+        ctx.pending.push({ href: a.getAttribute('href'), download: a.getAttribute('download'), assign: link => { item.link = link; } });
+      }
+      if (navItems.length === 0) {
+        navItems = ['Home', 'About', 'Contact'].map(label => ({ id: uid(), label }));
+      }
     }
     if (type === 'hero' && !props.text) {
       const h1 = el.querySelector('h1'); const h2 = el.querySelector('h2');
       props.title = h1 ? getContentText(h1) : h2 ? getContentText(h2) : 'Hero Title';
       const ps = Array.from(el.querySelectorAll('p'));
       props.subtitle = ps.length > 0 ? getContentText(ps[0]!) : '';
-      const cta = el.querySelector('a') || el.querySelector('button');
-      props.cta = cta ? getContentText(cta) || 'Get Started' : 'Get Started';
+      // The CTA is the last link or button in the block that is not part of a nav.
+      const ctas = Array.from(el.querySelectorAll('a, button')).filter(c => !c.closest('nav'));
+      heroCta = ctas[ctas.length - 1];
+      props.cta = heroCta ? getContentText(heroCta) || 'Get Started' : 'Get Started';
     }
     if (type === 'contact-form') {
       props.email = 'contact@example.com';
@@ -460,11 +538,34 @@ function elementToComponent(el: Element, depth: number = 0): EditorComponent | n
     draggable: true,
     deletable: true,
   };
+  if (navItems) component.navItems = navItems;
+  if (ctx.css) {
+    const cls = cleanClassName(el.getAttribute('class'));
+    if (cls) component.className = cls;
+  }
+  // Animation presets come back from their `data-apx-*` attributes on both paths (spec 0004 AC-9).
+  const animation = animationFromElement(el, type);
+  if (animation) component.animation = animation;
+  ctx.elements.set(el, component);
+
+  // A valid, unique HTML id on a target type becomes the element's anchor.
+  const htmlId = (el.getAttribute('id') || '').toLowerCase();
+  if (htmlId && LINKABLE_TYPES.has(type) && isValidAnchor(htmlId) && !ctx.anchors.has(htmlId)) {
+    component.anchor = htmlId;
+    ctx.anchors.set(htmlId, { id: component.id, pageId: ctx.pageId });
+  }
+
+  if (tag === 'a' && LINKABLE_TYPES.has(type)) {
+    ctx.pending.push({ href: el.getAttribute('href'), download: el.getAttribute('download'), assign: link => { component.link = link; } });
+  }
+  if (heroCta && heroCta.tagName === 'A') {
+    ctx.pending.push({ href: heroCta.getAttribute('href'), download: heroCta.getAttribute('download'), assign: link => { component.ctaLink = link; } });
+  }
 
   if (!SECTION_TYPES.includes(type)) {
     const children = Array.from(el.children);
     for (const child of children) {
-      const childComp = elementToComponent(child, depth + 1);
+      const childComp = elementToComponent(child, depth + 1, ctx);
       if (childComp) {
         if (childComp.type === 'image' && type === 'gallery') continue;
         component.children.push(childComp);
@@ -475,104 +576,352 @@ function elementToComponent(el: Element, depth: number = 0): EditorComponent | n
   return component;
 }
 
-export function htmlToComponents(html: string): EditorComponent[] {
+export interface ImportOptions {
+  /** The project's current pages, used to match `/slug` links and keep anchors unique. */
+  pages?: Page[];
+  /** The page the imported components will live on. */
+  pageId?: string;
+}
+
+function embedFallback(html: string): EditorComponent {
+  return {
+    id: uid(),
+    type: 'html-embed',
+    name: 'HTML Embed',
+    props: { html },
+    styles: { desktop: {}, tablet: {}, mobile: {} },
+    children: [],
+    editable: true,
+    draggable: true,
+    deletable: true,
+  };
+}
+
+function buildComponents(doc: Document, html: string, options: ImportOptions, css: boolean): { components: EditorComponent[]; elements: Map<Element, EditorComponent> } {
+  const components: EditorComponent[] = [];
+  const pageId = options.pageId ?? 'page-1';
+  const pages = options.pages ?? [];
+
+  // Anchors already used on other pages stay reserved; the page being replaced does not count.
+  const ctx: ImportCtx = { pageId, anchors: new Map(), pending: [], css, elements: new Map() };
+  for (const page of pages) {
+    if (page.id === pageId) continue;
+    walkComponents(page.components || [], c => {
+      if (c.anchor) ctx.anchors.set(c.anchor, { id: c.id, pageId: page.id });
+    });
+  }
+
+  for (const child of Array.from(doc.body.children)) {
+    try {
+      const comp = elementToComponent(child, 0, ctx);
+      if (comp) components.push(comp);
+    } catch (err) {
+      console.error('elementToComponent error for child:', child.tagName, err);
+    }
+  }
+
+  // Page links match against the pages the result will sit beside (the imported page keeps its slug).
+  const linkPages: Page[] = pages.length > 0 ? pages : [{ id: pageId, name: 'Home', slug: '/', components }];
+  for (const { href, download, assign } of ctx.pending) {
+    const link = linkFromHref(href, linkPages, ctx.anchors, download);
+    if (link) assign(link);
+  }
+
+  console.log('Components generated:', components.length);
+
+  if (components.length === 0) {
+    console.warn('No components generated, creating fallback html-embed');
+    components.push(embedFallback(html));
+  }
+
+  return { components, elements: ctx.elements };
+}
+
+/** Legacy (Tailwind) import: components only. */
+export function htmlToComponents(html: string, options: ImportOptions = {}): EditorComponent[] {
   try {
     const dom = new JSDOM(html, { contentType: 'text/html' });
-    const body = dom.window.document.body;
-    const components: EditorComponent[] = [];
-
-    for (const child of Array.from(body.children)) {
-      try {
-        const comp = elementToComponent(child, 0);
-        if (comp) components.push(comp);
-      } catch (err) {
-        console.error('elementToComponent error for child:', child.tagName, err);
-      }
-    }
-
-    console.log('Components generated:', components.length);
-
-    if (components.length === 0) {
-      console.warn('No components generated, creating fallback html-embed');
-      components.push({
-        id: uid(),
-        type: 'html-embed',
-        name: 'HTML Embed',
-        props: { html },
-        styles: { desktop: {}, tablet: {}, mobile: {} },
-        children: [],
-        editable: true,
-        draggable: true,
-        deletable: true,
-      });
-    }
-
-    return components;
+    return buildComponents(dom.window.document, html, options, false).components;
   } catch (error) {
     console.error('HTML to schema conversion error:', error);
-    return [{
-      id: uid(),
-      type: 'html-embed',
-      name: 'HTML Embed',
-      props: { html },
-      styles: { desktop: {}, tablet: {}, mobile: {} },
-      children: [],
-      editable: true,
-      draggable: true,
-      deletable: true,
-    }];
+    return [embedFallback(html)];
   }
 }
 
-export function componentsToHtml(components: EditorComponent[], device: 'desktop' | 'tablet' | 'mobile' = 'desktop'): string {
-  const renderOne = (comp: EditorComponent): string => {
-    const s = comp.styles[device];
-    const styleStr = Object.entries(s)
-      .filter(([, v]) => v)
-      .map(([k, v]) => `${k.replace(/[A-Z]/g, m => '-' + m.toLowerCase())}: ${v}`)
-      .join('; ');
-    const childrenHtml = comp.children.filter(c => !c.hidden).map(renderOne).join('\n');
+export interface PageData {
+  pages: Page[];
+  globalStyles: SiteStyles;
+}
+
+/**
+ * Generated or saved HTML to one editor page plus site styles (spec 0003 import).
+ * Tailwind documents take the legacy path; everything else is a plain CSS project.
+ */
+/** The first `<link rel="icon">` href in the document, when it is a valid favicon (spec 0006). */
+export function faviconFromHtml(html: string): string | undefined {
+  for (const tag of html.match(/<link\b[^>]*>/gi) ?? []) {
+    const attr = (name: string) => new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, 'i').exec(tag);
+    const rel = attr('rel');
+    if (!rel || !/(^|\s)icon(\s|$)/i.test(rel[1] ?? rel[2] ?? rel[3] ?? '')) continue;
+    const href = attr('href');
+    const raw = (href?.[1] ?? href?.[2] ?? href?.[3] ?? '').replace(/&amp;/g, '&');
+    const favicon = cleanFavicon(raw);
+    if (favicon) return favicon;
+  }
+  return undefined;
+}
+
+export function htmlToPageData(html: string, options: ImportOptions = {}): PageData {
+  const pageId = options.pageId ?? 'page-1';
+  const asPages = (components: EditorComponent[]): Page[] => [{ id: pageId, name: 'Home', slug: '/', components }];
+  // Read once, before any branch returns, so no import path drops the favicon (AC-11).
+  const favicon = faviconFromHtml(html);
+  // The design direction meta (spec 0007) travels the same way, so an editor save keeps it.
+  const direction = directionFromHtml(html);
+  // The HTML marker is the versioned source of the logo: no marker means no logo (spec 0008).
+  const logo = logoFromHtml(html);
+  const withIcon = (site: SiteStyles): SiteStyles => ({
+    ...site,
+    ...(favicon ? { favicon } : {}),
+    ...(direction ? { direction } : {}),
+    ...(logo ? { logo } : {}),
+  });
+  if (usesTailwind(html)) return { pages: asPages(htmlToComponents(html, options)), globalStyles: withIcon({}) };
+
+  let doc: Document;
+  let built: ReturnType<typeof buildComponents>;
+  try {
+    doc = new JSDOM(html, { contentType: 'text/html' }).window.document;
+    built = buildComponents(doc, html, options, true);
+  } catch (error) {
+    console.error('HTML to schema conversion error:', error);
+    return { pages: asPages([embedFallback(html)]), globalStyles: withIcon({ mode: 'css' }) };
+  }
+
+  // The animation preset sheet and scripts (spec 0004) are rewritten on export, never site styles.
+  const sheets = Array.from(doc.querySelectorAll('style:not([data-apexium-anim])')).map(s => s.textContent ?? '');
+  const script = Array.from(doc.querySelectorAll('script:not([src])'))
+    .filter(s => !s.hasAttribute('data-apexium-pages') && !s.hasAttribute('data-apexium-link-guard') && !s.hasAttribute('data-apexium-anim'))
+    .map(s => (s.textContent ?? '').trim())
+    .filter(Boolean)
+    .join('\n');
+  const linkHrefs = Array.from(doc.querySelectorAll('link[rel~="stylesheet"][href]'))
+    .map(l => l.getAttribute('href') ?? '')
+    .filter(isFontLink);
+
+  const site: SiteStyles = { mode: 'css' };
+  let fontLinks = linkHrefs;
+  try {
+    const cssLength = sheets.reduce((n, s) => n + s.length, 0);
+    if (cssLength > LIMITS.css || script.length > LIMITS.script || linkHrefs.length > LIMITS.fontLinks) {
+      throw new Error(`size limit exceeded (css ${cssLength}, script ${script.length}, font links ${linkHrefs.length})`);
+    }
+    const result = resolveStylesheets(doc, sheets, new Set([...built.elements.keys(), doc.body]));
+    for (const [el, comp] of built.elements) {
+      const styles = result.styles.get(el);
+      if (styles) comp.styles = styles;
+    }
+    const body = result.styles.get(doc.body)?.desktop;
+    if (body && Object.keys(body).length > 0) site.body = body;
+    site.css = result.css;
+    fontLinks = [...linkHrefs, ...result.imports.filter(isFontLink)];
+  } catch (error) {
+    // AC-14: never fail the run or the load; keep the sheet as written.
+    console.error('[plain-css] stylesheet resolve skipped, keeping the sheet verbatim:', error);
+    site.css = sheets.join('\n');
+  }
+  const uniqueFonts = [...new Set(fontLinks)].slice(0, LIMITS.fontLinks);
+  if (uniqueFonts.length > 0) site.fontLinks = uniqueFonts;
+  if (script) site.script = script;
+  return { pages: asPages(built.components), globalStyles: withIcon(site) };
+}
+
+/**
+ * `htmlToPageData` for paths that replace a project's stored pageData (AI finalize, rollback,
+ * "Save code"): the stored favicon wins, since it is a site setting, not versioned content (spec 0006).
+ */
+export function rebuildPageData(html: string, storedPageData: string | null | undefined, options: ImportOptions = {}): PageData {
+  const next = htmlToPageData(html, options);
+  let stored: SiteStyles | undefined;
+  try {
+    const parsed = JSON.parse(storedPageData || '{}');
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) stored = parsed.globalStyles;
+  } catch { /* no usable stored styles */ }
+  return { ...next, globalStyles: keepDirection(stored, keepFavicon(stored, next.globalStyles)) };
+}
+
+type Device = 'desktop' | 'tablet' | 'mobile';
+
+/** Box types render as the link element itself when linked (spec 0002 render table). */
+const BOX_TYPES = new Set(['container', 'section', 'row', 'column', 'card']);
+
+interface RenderCtx {
+  device: Device;
+  pageSlugs: Map<string, string>;
+  /** Component id → its anchor and page, first anchor wins so no `id` repeats. */
+  anchors: Map<string, { anchor: string; pageId: string }>;
+}
+
+function buildRenderCtx(pages: Page[], device: Device): RenderCtx {
+  const pageSlugs = new Map(pages.map(p => [p.id, p.slug || '/']));
+  const anchors = new Map<string, { anchor: string; pageId: string }>();
+  const used = new Set<string>();
+  for (const page of pages) {
+    walkComponents(page.components || [], c => {
+      if (c.anchor && isValidAnchor(c.anchor) && !used.has(c.anchor)) {
+        used.add(c.anchor);
+        anchors.set(c.id, { anchor: c.anchor, pageId: page.id });
+      }
+    });
+  }
+  return { device, pageSlugs, anchors };
+}
+
+/** `href` plus `target`/`rel` for a link, or `null` when it is broken or not allowed. */
+function linkAttrs(link: ElementLink | undefined, ctx: RenderCtx): string | null {
+  if (!link) return null;
+  let href: string | null = null;
+  if (link.kind === 'url') {
+    href = normalizeUrl(link.url ?? '');
+  } else if (link.kind === 'page') {
+    const slug = link.pageId ? ctx.pageSlugs.get(link.pageId) : undefined;
+    href = slug ? `#${slug}` : null;
+  } else if (link.kind === 'section') {
+    const target = link.targetId ? ctx.anchors.get(link.targetId) : undefined;
+    href = target && target.pageId === link.pageId ? `#${target.anchor}` : null;
+  } else if (link.kind === 'file') {
+    // Uploads only, never a target; the Save as name is cleaned again here (spec 0009 AC-3, AC-11).
+    const url = link.url;
+    if (typeof url !== 'string' || !isMediaFileUrl(url)) return null;
+    const name = cleanDownloadName(link.fileName, url);
+    return `href="${escapeAttr(url)}" ${name ? `download="${escapeAttr(name)}"` : 'download'}`;
+  }
+  if (!href) return null;
+  return `href="${escapeAttr(href)}"${link.newTab ? ' target="_blank" rel="noopener noreferrer"' : ''}`;
+}
+
+/** Normalizes any saved `pageData` shape (`{ pages }`, `{ components }`, a pages or components array) to pages. */
+export function toPages(pageData: any): Page[] {
+  if (Array.isArray(pageData?.pages)) return pageData.pages;
+  if (Array.isArray(pageData) && pageData.every((p: any) => Array.isArray(p?.components))) return pageData;
+  const components = Array.isArray(pageData?.components) ? pageData.components : Array.isArray(pageData) ? pageData : [];
+  return [{ id: 'page-1', name: 'Home', slug: '/', components }];
+}
+
+/**
+ * Pages to the published document (spec 0003 export). Component styles go into a
+ * generated `[data-c]` sheet, not inline, so the site sheet's media queries and
+ * hover rules keep working. Mirrored by `generateHtml` in `EditorPage.tsx`.
+ */
+export function componentsToHtml(pages: Page[], site: SiteStyles = {}): string {
+  const ctx = buildRenderCtx(pages, 'desktop');
+  const CTA_STYLE = 'display:inline-block;padding:12px 24px;background:#7c3aed;color:#fff;border-radius:8px;text-decoration:none';
+  const state: ExportState = { styled: [], animated: false };
+  // Every copy of the logo gets its own id prefix (spec 0008).
+  let logoCopies = 0;
+  const logo = (): string => site.logo ? logoMarkup(site.logo, ++logoCopies) : '';
+
+  const renderOne =(comp: EditorComponent, insideLink: boolean): string => {
+    const s = comp.styles?.desktop ?? {};
+    const styleParts: string[] = [];
+    const styleStr = '';
+    // The outermost link wins: nothing inside a linked element renders another <a>.
+    const ownLink = !insideLink && LINKABLE_TYPES.has(comp.type) ? linkAttrs(comp.link, ctx) : null;
+    const inLink = insideLink || ownLink !== null;
+    const childrenHtml = (comp.children || []).filter(c => !c.hidden).map(c => renderOne(c, inLink)).join('\n');
     const propsStr = Object.entries(comp.props)
       .filter(([, v]) => v && typeof v !== 'object')
       .map(([k, v]) => `${k}="${String(v).replace(/"/g, '&quot;')}"`)
       .join(' ');
 
+    // A linked box becomes <a> carrying its own styles, so its layout does not change.
+    const box = (tag: string, content: string, withProps: boolean): string => {
+      if (ownLink && BOX_TYPES.has(comp.type)) {
+        const linkStyle = [...styleParts, ...(s.display ? [] : ['display: block']), 'color: inherit', 'text-decoration: none'].join('; ');
+        return `<a ${ownLink} style="${linkStyle}">${content}</a>`;
+      }
+      return `<${tag} style="${styleStr}"${withProps && propsStr ? ' ' + propsStr : ''}>${content}</${tag}>`;
+    };
+    const linkedText = (text: string): string =>
+      ownLink ? `<a ${ownLink} style="color:inherit;text-decoration:inherit">${text}</a>` : text;
+    // Buttons and CTAs: an <a> normally, a <span> when an ancestor already links.
+    const action = (attrs: string | null, style: string, text: string): string =>
+      inLink && !ownLink ? `<span style="${style}">${text}</span>` : `<a ${attrs ?? 'href="#"'} style="${style}">${text}</a>`;
+    const cta = (link: ElementLink | undefined, text: string): string =>
+      insideLink ? `<span style="${CTA_STYLE}">${text}</span>` : `<a ${linkAttrs(link, ctx) ?? 'href="#"'} style="${CTA_STYLE}">${text}</a>`;
+    const navItems = (): string => {
+      const items = comp.navItems ?? String(comp.props.links || '').split(',').filter(l => l.trim()).map(l => ({ id: '', label: l.trim() }));
+      return items.map(item => {
+        const attrs = insideLink ? null : linkAttrs((item as NavItem).link, ctx);
+        return attrs ? `<a ${attrs} style="color:inherit;text-decoration:none">${item.label}</a>` : `<span>${item.label}</span>`;
+      }).join('');
+    };
+
+    let html: string;
     switch (comp.type) {
-      case 'container': return `<div style="${styleStr}" ${propsStr}>${childrenHtml}</div>`;
-      case 'section': return `<section style="${styleStr}" ${propsStr}>${childrenHtml}</section>`;
-      case 'row': return `<div style="${styleStr}" ${propsStr}>${childrenHtml}</div>`;
-      case 'column': return `<div style="${styleStr}" ${propsStr}>${childrenHtml}</div>`;
+      case 'container': html = box('div', childrenHtml, true); break;
+      case 'section': html = box('section', childrenHtml, true); break;
+      case 'row': html = box('div', childrenHtml, true); break;
+      case 'column': html = box('div', childrenHtml, true); break;
       case 'heading': {
         const lvl = comp.props.level || 'h2';
-        return `<${lvl} style="${styleStr}">${comp.props.text || ''}</${lvl}>`;
+        html = `<${lvl} style="${styleStr}">${linkedText(comp.props.text || '')}</${lvl}>`;
+        break;
       }
-      case 'text': return `<p style="${styleStr}">${comp.props.text || ''}</p>`;
-      case 'button': return `<a href="${comp.props.link || '#'}" style="${styleStr}">${comp.props.text || 'Button'}</a>`;
-      case 'image': return `<img src="${comp.props.src || ''}" alt="${comp.props.alt || ''}" style="${styleStr}" loading="lazy" />`;
-      case 'video': return `<div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:8px"><iframe src="${comp.props.src || ''}" style="position:absolute;top:0;left:0;width:100%;height:100%;border:none" allowfullscreen></iframe></div>`;
-      case 'icon': return `<span style="${styleStr}">${comp.props.name || 'star'}</span>`;
-      case 'divider': return `<hr style="${styleStr}" />`;
-      case 'spacer': return `<div style="${styleStr}"></div>`;
-      case 'card': return `<div style="${styleStr}"><h3>${comp.props.title || ''}</h3><p>${comp.props.text || ''}</p>${childrenHtml}</div>`;
-      case 'testimonial': return `<blockquote style="${styleStr}"><p>"${comp.props.quote || ''}"</p><footer><strong>${comp.props.author || ''}</strong> ${comp.props.role || ''}</footer></blockquote>`;
-      case 'faq': return `<details style="${styleStr}"><summary>${comp.props.question || ''}</summary><p>${comp.props.answer || ''}</p>${childrenHtml}</details>`;
-      case 'pricing': return `<div style="${styleStr}"><h3>${comp.props.plan || ''}</h3><div style="font-size:36px;font-weight:700">${comp.props.price || ''}<span style="font-size:14px;opacity:0.6">${comp.props.period || ''}</span></div><ul>${(comp.props.features || '').split(',').map((f: string) => `<li>${f.trim()}</li>`).join('')}</ul><a href="#" style="display:inline-block;padding:12px 24px;background:#7c3aed;color:#fff;border-radius:8px;text-decoration:none">${comp.props.cta || 'Get Started'}</a>${childrenHtml}</div>`;
-      case 'feature-grid': return `<div style="${styleStr}">${childrenHtml}</div>`;
-      case 'hero': return `<section style="${styleStr}"><h1>${comp.props.title || ''}</h1><p>${comp.props.subtitle || ''}</p><a href="#" style="display:inline-block;padding:12px 24px;background:#7c3aed;color:#fff;border-radius:8px;text-decoration:none">${comp.props.cta || 'Get Started'}</a>${childrenHtml}</section>`;
-      case 'navbar': return `<nav style="${styleStr}"><div style="font-weight:700;font-size:18px">${comp.props.brand || ''}</div><div style="display:flex;gap:16px">${(comp.props.links || '').split(',').map((l: string) => `<span>${l.trim()}</span>`).join('')}</div>${childrenHtml}</nav>`;
-      case 'footer': return `<footer style="${styleStr}"><p>${comp.props.text || ''}</p>${childrenHtml}</footer>`;
-      case 'contact-form': return `<form style="${styleStr}"><input placeholder="Name" style="padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:#fff" /><input type="email" placeholder="Email" style="padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:#fff" /><textarea placeholder="Message" rows={4} style="padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:#fff"></textarea><button type="submit" style="padding:12px 24px;background:#7c3aed;color:#fff;border:none;border-radius:8px;cursor:pointer">Send</button></form>`;
-      case 'newsletter-form': return `<div style="${styleStr}"><h3>Subscribe</h3><div style="display:flex;gap:8px"><input placeholder="${comp.props.placeholder || 'Email'}" style="flex:1;padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:#fff" /><button style="padding:12px 24px;background:#7c3aed;color:#fff;border:none;border-radius:8px;cursor:pointer">${comp.props.cta || 'Subscribe'}</button></div></div>`;
-      case 'gallery': return `<div style="${styleStr}">${(comp.props.images || '').split(',').map((url: string) => `<img src="${url.trim()}" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px" loading="lazy" />`).join('')}</div>`;
-      case 'slider': return `<div style="${styleStr}"><div style="display:flex;transition:transform 0.3s">${(comp.props.slides || '').split(',').map((s: string) => `<div style="min-width:100%;padding:20px">${s.trim()}</div>`).join('')}</div>${childrenHtml}</div>`;
-      case 'carousel': return `<div style="${styleStr};display:flex;overflow-x:auto;scroll-snap-type:x mandatory;gap:8px">${(comp.props.images || '').split(',').map((url: string) => `<img src="${url.trim()}" style="scroll-snap-align:start;width:80%;flex-shrink:0;aspect-ratio:16/10;object-fit:cover;border-radius:8px" loading="lazy" />`).join('')}</div>`;
-      case 'map': return `<iframe style="${styleStr}" src="https://maps.google.com/maps?q=${encodeURIComponent(comp.props.address || 'New York')}&z=${comp.props.zoom || '12'}&output=embed" loading="lazy"></iframe>`;
-      case 'code-block': return `<pre style="${styleStr}"><code>${comp.props.code || ''}</code></pre>`;
-      case 'html-embed': return comp.props.html || '';
-      default: return `<div style="${styleStr}">${childrenHtml}</div>`;
+      case 'text': html = `<p style="${styleStr}">${linkedText(comp.props.text || '')}</p>`; break;
+      case 'button': html = action(ownLink, styleStr, comp.props.text || 'Button'); break;
+      case 'image': html = `<img src="${comp.props.src || ''}" alt="${comp.props.alt || ''}" style="${styleStr}" loading="lazy" />`; break;
+      case 'video': html = `<div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:8px"><iframe src="${comp.props.src || ''}" style="position:absolute;top:0;left:0;width:100%;height:100%;border:none" allowfullscreen></iframe></div>`; break;
+      case 'icon': html = `<span style="${styleStr}">${comp.props.name || 'star'}</span>`; break;
+      case 'divider': html = `<hr style="${styleStr}" />`; break;
+      case 'spacer': html = `<div style="${styleStr}"></div>`; break;
+      case 'card': html = box('div', `<h3>${comp.props.title || ''}</h3><p>${comp.props.text || ''}</p>${childrenHtml}`, false); break;
+      case 'testimonial': html = `<blockquote style="${styleStr}"><p>"${comp.props.quote || ''}"</p><footer><strong>${comp.props.author || ''}</strong> ${comp.props.role || ''}</footer></blockquote>`; break;
+      case 'faq': html = `<details style="${styleStr}"><summary>${comp.props.question || ''}</summary><p>${comp.props.answer || ''}</p>${childrenHtml}</details>`; break;
+      case 'pricing': html = `<div style="${styleStr}"><h3>${comp.props.plan || ''}</h3><div style="font-size:36px;font-weight:700">${comp.props.price || ''}<span style="font-size:14px;opacity:0.6">${comp.props.period || ''}</span></div><ul>${(comp.props.features || '').split(',').map((f: string) => `<li>${f.trim()}</li>`).join('')}</ul>${cta(comp.ctaLink, comp.props.cta || 'Get Started')}${childrenHtml}</div>`; break;
+      case 'feature-grid': html = `<div style="${styleStr}">${childrenHtml}</div>`; break;
+      case 'hero': html = `<section style="${styleStr}"><h1>${comp.props.title || ''}</h1><p>${comp.props.subtitle || ''}</p>${cta(comp.ctaLink, comp.props.cta || 'Get Started')}${childrenHtml}</section>`; break;
+      case 'navbar': {
+        const mark = comp.props.brandLogo ? logo() : '';
+        const brandStyle = mark ? 'display:flex;align-items:center;gap:8px;font-weight:700;font-size:18px' : 'font-weight:700;font-size:18px';
+        html = `<nav style="${styleStr}"><div style="${brandStyle}">${mark}${comp.props.brand || ''}</div><div style="display:flex;gap:16px">${navItems()}</div>${childrenHtml}</nav>`;
+        break;
+      }
+      case 'logo': html = logo(); break;
+      case 'footer': html = `<footer style="${styleStr}"><p>${comp.props.text || ''}</p>${childrenHtml}</footer>`; break;
+      case 'contact-form': html = `<form style="${styleStr}"><input placeholder="Name" style="padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:#fff" /><input type="email" placeholder="Email" style="padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:#fff" /><textarea placeholder="Message" rows={4} style="padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:#fff"></textarea><button type="submit" style="padding:12px 24px;background:#7c3aed;color:#fff;border:none;border-radius:8px;cursor:pointer">Send</button></form>`; break;
+      case 'newsletter-form': html = `<div style="${styleStr}"><h3>Subscribe</h3><div style="display:flex;gap:8px"><input placeholder="${comp.props.placeholder || 'Email'}" style="flex:1;padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:#fff" /><button style="padding:12px 24px;background:#7c3aed;color:#fff;border:none;border-radius:8px;cursor:pointer">${comp.props.cta || 'Subscribe'}</button></div></div>`; break;
+      case 'gallery': html = `<div style="${styleStr}">${(comp.props.images || '').split(',').map((url: string) => `<img src="${url.trim()}" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px" loading="lazy" />`).join('')}</div>`; break;
+      case 'slider': html = `<div style="${styleStr}"><div style="display:flex;transition:transform 0.3s">${(comp.props.slides || '').split(',').map((sl: string) => `<div style="min-width:100%;padding:20px">${sl.trim()}</div>`).join('')}</div>${childrenHtml}</div>`; break;
+      case 'carousel': html = `<div style="${styleStr};display:flex;overflow-x:auto;scroll-snap-type:x mandatory;gap:8px">${(comp.props.images || '').split(',').map((url: string) => `<img src="${url.trim()}" style="scroll-snap-align:start;width:80%;flex-shrink:0;aspect-ratio:16/10;object-fit:cover;border-radius:8px" loading="lazy" />`).join('')}</div>`; break;
+      case 'map': html = `<iframe style="${styleStr}" src="https://maps.google.com/maps?q=${encodeURIComponent(comp.props.address || 'New York')}&z=${comp.props.zoom || '12'}&output=embed" loading="lazy"></iframe>`; break;
+      case 'code-block': html = `<pre style="${styleStr}"><code>${comp.props.code || ''}</code></pre>`; break;
+      case 'html-embed': html = comp.props.html || ''; break;
+      default: html = `<div style="${styleStr}">${childrenHtml}</div>`;
     }
+
+    // The outer element carries the section anchor id, `data-c`, and the site class.
+    if (comp.type !== 'html-embed') {
+      const anchor = ctx.anchors.get(comp.id);
+      const attrs = (anchor ? ` id="${escapeAttr(anchor.anchor)}"` : '') + elementAttrs(comp, state);
+      html = html.replace(/ style=""/g, '').replace(/^<([a-zA-Z][a-zA-Z0-9]*)/, `<$1${attrs}`);
+    }
+    // A linked image or icon keeps its attributes: the `display:contents` link draws no box.
+    if (ownLink && (comp.type === 'image' || comp.type === 'icon')) html = `<a ${ownLink} style="display:contents">${html}</a>`;
+    return html;
   };
 
-  const body = components.filter(c => !c.hidden).map(renderOne).join('\n');
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><script src="https://cdn.tailwindcss.com"></script></head><body style="margin:0;background:#030712;color:#f1f5f9;font-family:system-ui,-apple-system,sans-serif">${body}</body></html>`;
+  const renderList = (components: EditorComponent[]) => components.filter(c => !c.hidden).map(c => renderOne(c, false)).join('\n');
+
+  let body: string;
+  if (pages.length <= 1) {
+    body = renderList(pages[0]?.components ?? []);
+  } else {
+    // Multipage: one wrapper per page, only the start page visible without the switcher.
+    const start = pages.find(p => p.slug === '/') ?? pages[0]!;
+    body = PAGE_SWITCHER_SCRIPT + pages.map(p =>
+      `<div data-apexium-page="${escapeAttr(p.slug || '/')}"${p === start ? '' : ' hidden'}>${renderList(p.components ?? [])}</div>`
+    ).join('\n');
+  }
+  return siteDocument(body, state, site);
 }

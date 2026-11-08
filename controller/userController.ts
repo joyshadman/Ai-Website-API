@@ -1,70 +1,35 @@
-import openai, { assertAiKeyConfigured } from '../config/openai.js';
+import type OpenAI from 'openai';
 import { type Request, type Response } from 'express';
 import prisma from '../lib/prisma.js';
-import { htmlToComponents } from '../lib/htmlToSchema.js';
-import { extractHtmlCode } from '../lib/extractCode.js';
+import {
+    deductCredits,
+    finalize,
+    releaseJob,
+    reserveJob,
+    runGenerationJob,
+    writeStartMessages,
+    type GenerationJob,
+} from '../lib/generationJobs.js';
+import { PLAIN_CSS_RULES } from '../lib/plainCssPrompt.js';
+import { DESIGN_RULES } from '../lib/designPrompt.js';
 
-async function refundCredits(userId: string) {
-    try {
-        await prisma.user.update({
-            where: { id: userId },
-            data: { credits: { increment: 5 } },
-        });
-    } catch (refundError) {
-        console.error('Failed to refund credits:', refundError);
-    }
-}
-
-async function generateProjectWebsite(
-    projectId: string,
-    initial_prompt: string,
-    userId: string
-) {
-    try {
-        const existing = await prisma.websiteProject.findFirst({
-            where: { id: projectId, userId },
-            select: { current_code: true },
-        });
-
-        if (!existing || existing.current_code) {
-            return;
-        }
-
-        assertAiKeyConfigured();
-
-        await prisma.conversation.create({
-            data: {
-                role: 'assistant',
-                content: 'Now generating the website...',
-                projectId,
-            },
-        });
-
-        // Single AI request per action (no prompt-enhancement round-trip and no
-        // model fallback): the generation prompt itself instructs the model to
-        // expand brief requests into a full site, so only ONE OpenRouter call
-        // is made per user action. This halves rate-limit consumption.
-        const codeGenerationResponse = await openai.chat.completions.create({
-            model: 'gpt-oss-120b',
-            messages: [{
+// Single AI request per action: the prompt itself tells the model to expand a
+// brief request into a full site, so there is no separate enhance round trip.
+export function buildCreateMessages(initial_prompt: string): OpenAI.Chat.ChatCompletionMessageParam[] {
+    return [{
                 role: 'system',
                 content: `You are an expert web developer. Create a complete, production-ready, single-page website based on this request: "${initial_prompt}"
 
     CRITICAL REQUIREMENTS:
     - If the request is brief or vague, silently expand it into a detailed specification as you generate: decide concrete sections, layout, color palette, and typography. Never return the specification text itself — only the final HTML.
-    - You MUST output valid HTML ONLY. 
-    - Use Tailwind CSS for ALL styling
-    - Include this EXACT script in the <head>: <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-    - Use Tailwind utility classes extensively for styling, animations, and responsiveness
-    - Make it fully functional and interactive with JavaScript in <script> tag before closing </body>
-    - Use modern, beautiful design with great UX using Tailwind classes
-    - Make it responsive using Tailwind responsive classes (sm:, md:, lg:, xl:)
-    - Use Tailwind animations and transitions (animate-*, transition-*)
-    - Include all necessary meta tags
-    - Use Google Fonts CDN if needed for custom fonts
+    - You MUST output valid HTML ONLY: one complete document from <!DOCTYPE html> to </html>.
+    - Fully responsive, with great UX.
+    - Include all necessary meta tags.
     - Use placeholder images from https://placehold.co/600x400
-    - Use Tailwind gradient classes for beautiful backgrounds
-    - Make sure all buttons, cards, and components use Tailwind styling
+
+    ${PLAIN_CSS_RULES}
+
+    ${DESIGN_RULES}
 
     CRITICAL HARD RULES:
     1. You MUST put ALL output ONLY into message.content.
@@ -72,68 +37,11 @@ async function generateProjectWebsite(
     3. You MUST NOT include internal thoughts, explanations, analysis, comments, or markdown.
     4. Do NOT include markdown, explanations, notes, or code fences.
 
-    The HTML should be complete and ready to render as-is with Tailwind CSS.`,
+    The HTML should be complete and ready to render as-is, with no external CSS framework.`,
             }, {
                 role: 'user',
                 content: initial_prompt,
-            }],
-        });
-
-        // FIX (TS2532): choices[0] is possibly undefined — use optional chaining + fallback
-        const rawCode = codeGenerationResponse.choices[0]?.message?.content ?? '';
-
-        const cleanedCode = extractHtmlCode(rawCode);
-        if (!cleanedCode) {
-            // Abort before persisting anything: empty/invalid output must not
-            // overwrite pageData/current_code or create a broken version.
-            throw new Error('AI returned empty or invalid HTML; nothing was saved.');
-        }
-
-        const version = await prisma.version.create({
-            data: {
-                code: cleanedCode,
-                description: 'Initial version',
-                projectId,
-            },
-        });
-
-        await prisma.conversation.create({
-            data: {
-                role: 'assistant',
-                content: 'I generated the website! You can now preview it and if you want any changes just ask me.',
-                projectId,
-            },
-        });
-
-        const components = htmlToComponents(cleanedCode);
-        const pageData = JSON.stringify({
-          pages: [
-            { id: 'page-1', name: 'Home', slug: '/', components }
-          ],
-          globalStyles: {}
-        });
-
-        await prisma.websiteProject.update({
-            where: { id: projectId },
-            data: {
-                current_code: cleanedCode,
-                current_version_index: version.id,
-                pageData,
-            },
-        });
-    } catch (error) {
-        console.error('Background generation error:', error);
-
-        await prisma.conversation.create({
-            data: {
-                role: 'assistant',
-                content: 'Generation failed. Your credits have been refunded. Please try again.',
-                projectId,
-            },
-        }).catch(() => undefined);
-
-        await refundCredits(userId);
-    }
+            }];
 }
 
 export const getUserCredit = async (req: Request, res: Response) => {
@@ -155,7 +63,7 @@ export const getUserCredit = async (req: Request, res: Response) => {
 
 export const createUserProject = async (req: Request, res: Response) => {
     const userid = req.userId;
-    let creditsDeducted = false;
+    let job: GenerationJob | null = null;
 
     try {
         const { initial_prompt } = req.body;
@@ -186,32 +94,35 @@ export const createUserProject = async (req: Request, res: Response) => {
             },
         });
 
+        // Start order (spec 0001): synchronous registry check, atomic deduct,
+        // then the user message and working marker, then respond and run.
+        const reserved = reserveJob(project.id, userid, 'create', 'Initial version');
+        if (reserved === 409 || reserved === 429) {
+            await prisma.websiteProject.delete({ where: { id: project.id } });
+            return res.status(reserved).json({ error: 'You already have 2 generations running. Please wait for one to finish.' });
+        }
+        job = reserved;
+        job.plainCss = true;
+
+        if (!(await deductCredits(job))) {
+            releaseJob(job);
+            await prisma.websiteProject.delete({ where: { id: project.id } });
+            return res.status(403).json({ error: 'Insufficient credit' });
+        }
+
         await prisma.user.update({
             where: { id: userid },
             data: { totalCreation: { increment: 1 } },
         });
 
-        await prisma.conversation.create({
-            data: {
-                role: 'user',
-                content: initial_prompt.trim(),
-                projectId: project.id,
-            },
-        });
-
-        await prisma.user.update({
-            where: { id: userid },
-            data: { credits: { decrement: 5 } },
-        });
-        creditsDeducted = true;
+        const prompt = initial_prompt.trim();
+        await writeStartMessages(job, prompt);
 
         res.json({ projectId: project.id });
 
-        void generateProjectWebsite(project.id, initial_prompt.trim(), userid);
+        void runGenerationJob(job, async () => buildCreateMessages(prompt));
     } catch (error: any) {
-        if (creditsDeducted && userid) {
-            await refundCredits(userid);
-        }
+        if (job) await finalize(job, 'failed');
 
         console.error('Project creation error:', error);
 
