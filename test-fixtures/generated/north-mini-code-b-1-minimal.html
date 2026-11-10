@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="apexium-direction" content="minimal">
+<title>Mara Lind – UX Consultant</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --color-bg: #f8fafc;
+  --color-surface: #ffffff;
+  --color-text: #0f172a;
+  --color-muted: #475569;
+  --color-primary: #2563eb;
+  --color-on-primary: #ffffff;
+  --font-heading: 'Inter', sans-serif;
+  --font-body: 'Inter', sans-serif;
+  --radius: 8px;
+  --space: 24px;
+}
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: 1.125rem;
+  line-height: 1.6;
+  color: var(--color-text);
+  background: var(--color-bg);
+}
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-muted);
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--space) * 0.5);
+  text-decoration: none;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 1.25rem;
+  color: var(--color-text);
+}
+.brand span svg {
+  display: block;
+}
+.site-nav {
+  display: flex;
+  gap: var(--space);
+}
+.site-nav a {
+  text-decoration: none;
+  color: var(--color-text);
+  font-weight: 500;
+  transition: color 0.3s;
+}
+.site-nav a:hover,
+.site-nav a:focus-visible {
+  color: var(--color-primary);
+}
+.mobile-toggle {
+  display: none;
+  background: none;
+  border: none;
+  font-size: 1. mote;
+  cursor: pointer;
+  color: var(--color-text);
+}
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding-left: var(--space);
+  padding-right: var(--space);
+}
+.hero {
+  padding: calc(var(--space) * 2) var(--space);
+  background: var(--color-surface);
+  text-align: center;
+}
+.hero-content {
+  max-width: 800px;
+  margin:  ataxia;
+}
+.hero-content h1 {
+  font-family: var(--font-heading);
+  font-size: clamp(3rem, 5vw, 4.5rem);
+  line-height: 1.1;
+  margin-bottom: var(--space);
+}
+.hero-content p {
+  margin-bottom: var(--space);
+}
+.btn-primary {
+  display: inline-block;
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  border: none;
+  padding: calc(var(--space) / 2) var(--space);
+  border-radius: var(--radius);
+  font-family: var(--font-heading);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.btn-primary:hover,
+.btn-primary:focus-visible {
+  background: var(--color-muted);
+  color: var(--color-text);
+}
+.services,
+.work,
+.contact {
+  padding: calc(var(--space) * 2) var(--space);
+  background: var(--color-surface);
+}
+.services h2,
+.work h2,
+.contact h2 {
+  font-family: var(--font-heading);
+  font-size: clamp(2rem, 4vw, 2.75rem);
+  line-height: 1.2;
+  margin-bottom: calc(var(--space) / 2);
+}
+.card-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space);
+}
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-muted);
+  border-radius: var(--radius);
+  padding: var(--space);
+  transition: all 0.2s ease;
+}
+.card:hover,
+.card:focus-within {
+  transform: translateY(-4px);
+  box-shadow: 0 6px 20px var(--color-muted);
+}
+.card h3 {
+  margin-top: 0;
+  font-family: var(--font-heading);
+  font-size: 1.25rem;
+  line-height: 1.3;
+}
+.contact form {
+  max-width: 600px;
+  margin: 0 auto;
+  display: grid;
+  gap: var(--space);
+}
+.contact label {
+  display: block;
+  margin-bottom: calc(var(--space) / 2);
+  font-weight: 600;
+}
+.contact input,
+.contact textarea {
+  width: 100%;
+  padding: calc(var(--space) / 2);
+  border: 1px solid var(--color-muted);
+  border-radius: var(--radius);
+  font-family: var(--font-body);
+  font-size: 1rem;
+}
+.contact button {
+  justify-self: start;
+}
+.site-footer {
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-muted);
+  text-align: center;
+  padding: var(--space);
+}
+@media (max-width: 1024px) {
+  .hero-content {
+    max-width: 90%;
+  }
+  .services,
+  .work,
+  .contact {
+    padding: calc(var(--space) * 1.5) var(--space);
+  }
+}
+@media (max-width: 640px) {
+  .mobile-toggle {
+    display: block;
+  }
+  .site-nav {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    width: 100%;
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-muted);
+    flex-direction: column;
+    padding: var(--space);
+  }
+  .site-nav.is-open {
+    display: flex;
+  }
+  .site-nav a {
+    padding: calc(var(--space) / 2) 0;
+  }
+  .card-container {
+    grid-template-columns: 1fr;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0s !important;
+    transition-duration: 0s !important;
+  }
+}
+</style>
+<style data-apexium-anim>:where(a,span):where([data-apx-anim],[data-apx-hover]){display:inline-block}
+html.apx-ready [data-apx-anim]:not(.apx-in){opacity:0}
+@keyframes apx-fade{from{opacity:0}}
+@keyframes apx-slide-up{from{opacity:0;transform:translateY(24px)}}
+@keyframes apx-slide-down{from{opacity:0;transform:translateY(-24px)}}
+@keyframes apx-slide-left{from{opacity:0;transform:translateX(24px)}}
+@keyframes apx-slide-right{from{opacity:0;transform:translateX(-24px)}}
+@keyframes apx-zoom-in{from{opacity:0;transform:scale(0.92)}}
+[data-apx-anim]{--apx-dur:.7s;--apx-delay:0s}
+[data-apx-speed="fast"]{--apx-dur:.4s}
+[data-apx-speed="slow"]{--apx-dur:1s}
+[data-apx-delay="0.1"]{--apx-delay:0.1s}
+[data-apx-delay="0.2"]{--apx-delay:0.2s}
+[data-apx-delay="0.3"]{--apx-delay:0.3s}
+[data-apx-delay="0.4"]{--apx-delay:0.4s}
+[data-apx-delay="0.5"]{--apx-delay:0.5s}
+[data-apx-delay="0.6"]{--apx-delay:0.6s}
+[data-apx-delay="0.7"]{--apx-delay:0.7s}
+[data-apx-delay="0.8"]{--apx-delay:0.8s}
+[data-apx-delay="0.9"]{--apx-delay:0.9s}
+[data-apx-delay="1"]{--apx-delay:1s}
+[data-apx-delay="1.1"]{--apx-delay:1.1s}
+[data-apx-delay="1.2"]{--apx-delay:1.2s}
+[data-apx-delay="1.3"]{--apx-delay:1.3s}
+[data-apx-delay="1.4"]{--apx-delay:1.4s}
+[data-apx-delay="1.5"]{--apx-delay:1.5s}
+[data-apx-delay="1.6"]{--apx-delay:1.6s}
+[data-apx-delay="1.7"]{--apx-delay:1.7s}
+[data-apx-delay="1.8"]{--apx-delay:1.8s}
+[data-apx-delay="1.9"]{--apx-delay:1.9s}
+[data-apx-delay="2"]{--apx-delay:2s}
+[data-apx-anim="fade"].apx-in{animation:apx-fade var(--apx-dur) cubic-bezier(.22,1,.36,1) var(--apx-delay) backwards}
+[data-apx-anim="slide-up"].apx-in{animation:apx-slide-up var(--apx-dur) cubic-bezier(.22,1,.36,1) var(--apx-delay) backwards}
+[data-apx-anim="slide-down"].apx-in{animation:apx-slide-down var(--apx-dur) cubic-bezier(.22,1,.36,1) var(--apx-delay) backwards}
+[data-apx-anim="slide-left"].apx-in{animation:apx-slide-left var(--apx-dur) cubic-bezier(.22,1,.36,1) var(--apx-delay) backwards}
+[data-apx-anim="slide-right"].apx-in{animation:apx-slide-right var(--apx-dur) cubic-bezier(.22,1,.36,1) var(--apx-delay) backwards}
+[data-apx-anim="zoom-in"].apx-in{animation:apx-zoom-in var(--apx-dur) cubic-bezier(.22,1,.36,1) var(--apx-delay) backwards}
+[data-apx-hover]{transition:transform .25s ease,box-shadow .25s ease,opacity .25s ease}
+[data-apx-hover="lift"]:hover{transform:translateY(-4px);box-shadow:0 12px 24px rgba(0,0,0,.18)}
+[data-apx-hover="grow"]:hover{transform:scale(1.05)}
+[data-apx-hover="glow"]:hover{box-shadow:0 0 0 3px rgba(124,58,237,.35),0 0 24px rgba(124,58,237,.25);box-shadow:0 0 0 3px color-mix(in srgb,currentColor 35%,transparent),0 0 24px color-mix(in srgb,currentColor 25%,transparent)}
+[data-apx-hover="dim"]:hover{opacity:0.8}
+@media (prefers-reduced-motion: reduce){[data-apx-anim].apx-in{animation-name:apx-fade;animation-duration:.3s}[data-apx-hover="lift"]:hover,[data-apx-hover="grow"]:hover{transform:none}}</style><script data-apexium-anim>document.documentElement.classList.add("apx-ready");window.__apxReveal=setTimeout(function(){var a=document.querySelectorAll("[data-apx-anim]");for(var i=0;i<a.length;i++)a[i].classList.add("apx-in")},2500);</script></head>
+<body>
+<header>
+  <a href="#" class="brand">
+    <span data-apexium-logo="ai" style="display:inline-flex;align-items:center;max-width:168px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false" height="28"><path d="M12 2L2 9v13h16V9L12 2z" fill="var(--color-primary)" stroke="var(--color-muted)" stroke-width="1"></path></svg></span>
+    <span>Mara Lind</span>
+  </a>
+  <button class="mobile-toggle" aria-expanded="false" aria-controls="navigation">☰</button>
+  <nav class="site-nav" id="navigation">
+    <a href="#services">Services</a>
+    <a href="#work">Work</a>
+    <a href="#contact">Contact</a>
+  </nav>
+</header>
+<main>
+  <section class="hero">
+    <div class="hero-content" data-apx-anim="fade" data-apx-speed="slow">
+      <h1>Transforming Ideas into Intuitive Experiences</h1>
+      <p>I help startups and established brands create user‑centered products that engage and convert.</p>
+      <a href="#contact" class="btn-primary">Get in Touch</a>
+    </div>
+  </section>
+  <section id="services" class="services">
+    <h2 data-apx-anim="fade" data-apx-speed="normal">Services</h2>
+    <div class="card-container">
+      <article class="card">
+        <h3>UX Strategy &amp; Research</h3>
+        <p>Discover your users with interviews, surveys, and contextual inquiries. Build roadmaps that align business goals with user needs.</p>
+      </article>
+      <article class="card">
+        <h3>UI Design &amp; Prototyping</h3>
+        <p>High‑fidelity mockups in Figma, interactive prototypes, and design systems that keep consistency across products.</p>
+      </article>
+      <article class="card">
+        <h3>Usability Testing</h3>
+        <p>Recruit participants, run moderated or remote tests, and turn feedback into actionable insights.</p>
+      </article>
+    </div>
+  </section>
+  <section id="work" class="work">
+    <h2 data-apx-anim="fade" data-apx-speed="normal">Past Work</h2>
+    <div class="card-container">
+      <article class="card">
+        <img src="https://placehold.co/600x400" alt="FinTech Mobile App preview">
+        <h3>FinTech Mobile App</h3>
+        <p>End‑to‑end UX overhaul for a personal finance platform, increasing user satisfaction scores by 30%.</p>
+      </article>
+      <article class="card">
+        <img src="https://placehold.co/600x400" alt="Health &amp; Wellness SaaS preview">
+        <h3>Health &amp; Wellness SaaS</h3>
+        <p>Designed a dashboard that reduced task time by 25% and improved onboarding completion.</p>
+      </article>
+      <article class="card">
+        <img src="https://placehold.co/600x400" alt="E‑commerce Platform preview">
+        <h3>E‑commerce Platform</h3>
+        <p>Rebranded the checkout flow, resulting in a 15% rise in conversion rates.</p>
+      </article>
+    </div>
+  </section>
+  <section id="contact" class="contact">
+    <h2 data-apx-anim="fade" data-apx-speed="normal">Get in Touch</h2>
+    <form action="#" method="post">
+      <div>
+        <label for="name">Name</label>
+        <input type="text" id="name" name="name" required placeholder="Your name">
+      </div>
+      <div>
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" required placeholder="you@example.com">
+      </div>
+      <div>
+        <label for="message">Message</label>
+        <textarea id="message" name="message" rows="5" required placeholder="How can I help you?"></textarea>
+      </div>
+      <button type="submit" class="btn-primary">Send Message</button>
+    </form>
+  </section>
+</main>
+<footer class="site-footer">
+  <span data-apexium-logo="ai" style="display:inline-flex;align-items:center;max-width:168px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false" height="28"><path d="M12 2L2 9v13h16V9L12 2z" fill="var(--color-primary)" stroke="var(--color-muted)" stroke-width="1"></path></svg></span>
+  <p>© 2024 Mara Lind. All rights reserved.</p>
+</footer>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const toggle = document.querySelector('.mobile-toggle');
+  const nav = document.querySelector('.site-nav');
+  if (!toggle || !nav) return;
+  toggle.addEventListener('click', () => {
+    const expanded = toggle.getAttribute('aria-expanded') === 'true';
+    toggle.setAttribute('aria-expanded', !expanded);
+    nav.classList.toggle('is-open');
+  });
+});
+</script>
+<script data-apexium-anim>(function(){clearTimeout(window.__apxReveal);var a=document.querySelectorAll("[data-apx-anim]"),i;
+if(!("IntersectionObserver" in window)){for(i=0;i<a.length;i++)a[i].classList.add("apx-in");return}
+var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting&&(e.intersectionRatio>=0.15||e.intersectionRect.height>=window.innerHeight*0.15)){e.target.classList.add("apx-in");io.unobserve(e.target)}})},{threshold:[0,0.05,0.1,0.15]});
+for(i=0;i<a.length;i++)io.observe(a[i])})();</script></body>
+</html>

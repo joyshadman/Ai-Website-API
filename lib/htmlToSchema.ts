@@ -1,12 +1,12 @@
-import { JSDOM } from 'jsdom';
 import crypto from 'crypto';
+import { parseGeneratedHtml, styleElements } from './parseHtml.js';
 import {
   LINKABLE_TYPES, PAGE_SWITCHER_SCRIPT, cleanDownloadName, escapeAttr, isMediaFileUrl, isValidAnchor, linkFromHref, normalizeUrl, walkComponents,
   type ElementLink, type NavItem, type Page,
 } from './links.js';
-import { resolveStylesheets, usesTailwind } from './cssResolve.js';
+import { readElementRules, resolveStylesheets, usesTailwind } from './cssResolve.js';
 import { directionFromHtml } from './designChecks.js';
-import { LIMITS, cleanClassName, cleanFavicon, keepDirection, keepFavicon, elementAttrs, isFontLink, siteDocument, type ExportState, type SiteStyles } from './siteStyles.js';
+import { INLINE_TAGS, LIMITS, cleanClassName, cleanFavicon, cleanNode, elementAttrs, isFontLink, keepDirection, keepFavicon, renderElement, siteDocument, type ExportState, type SiteStyles } from './siteStyles.js';
 import { animationFromElement, type ElementAnimation } from './animations.js';
 import { LOGO_ATTR, logoFromHtml, logoMarkup } from './logo.js';
 
@@ -22,7 +22,9 @@ export type ComponentType =
   | 'gallery' | 'slider' | 'carousel'
   | 'map' | 'code-block' | 'html-embed'
   /** Draws `globalStyles.logo` (spec 0008); no props of its own, nothing when the site has no logo. */
-  | 'logo';
+  | 'logo'
+  /** One real HTML element of a generated site (spec 0013). */
+  | 'element';
 
 export interface StyleProperties {
   margin?: string; padding?: string;
@@ -66,6 +68,12 @@ export interface EditorComponent {
   className?: string;
   /** Entrance and hover presets (spec 0004); never on `html-embed`. */
   animation?: ElementAnimation;
+  /** `element` only (spec 0013): the real tag, or `#text` for loose text. */
+  tag?: string;
+  /** `element` only: every other attribute except `class`, `style`, and `data-apx-*`. */
+  attrs?: Record<string, string>;
+  /** `element` only: the style properties changed in the styles panel. */
+  editedStyles?: string[];
 }
 
 /** Collects `<a href>` values during import; resolved once the whole tree exists. */
@@ -73,9 +81,7 @@ interface ImportCtx {
   pageId: string;
   anchors: Map<string, { id: string; pageId: string }>;
   pending: { href: string | null; download?: string | null; assign: (link: ElementLink) => void }[];
-  /** Plain CSS path (spec 0003): no Tailwind class parsing, hero and footer keep children. */
-  css: boolean;
-  /** Source element of every component, for the stylesheet resolver. */
+  /** Source element of every plain CSS node, for the stylesheet resolver. */
   elements: Map<Element, EditorComponent>;
 }
 
@@ -91,7 +97,7 @@ function parseInlineStyles(styleStr: string): StyleProperties {
     const key = k?.trim();
     const val = v.join(':').trim();
     if (key && val) {
-      const camel = kebabToCamel(key) as keyof StyleProperties;
+      const camel = (key.startsWith('--') ? key : kebabToCamel(key)) as keyof StyleProperties;
       (styles as any)[camel] = val;
     }
   }
@@ -424,24 +430,118 @@ function extractTextContent(el: Element): Record<string, any> {
   return props;
 }
 
+/** A logo marker becomes a `logo` component; its SVG lives once in `globalStyles.logo` (spec 0008). */
+function logoComponent(): EditorComponent {
+  return {
+    id: uid(), type: 'logo', name: 'Logo', props: {},
+    styles: { desktop: {}, tablet: {}, mobile: {} },
+    children: [], editable: true, draggable: true, deletable: true,
+  };
+}
+
+/* Plain CSS import (spec 0013): one `element` node per real HTML element. */
+const INLINE_BY_DEFAULT: ReadonlySet<string> = new Set([...INLINE_TAGS, 'button', 'img', 'input', 'label', 'select', 'svg', 'textarea']);
+const NOT_CONTENT: ReadonlySet<string> = new Set(['script', 'style', 'meta', 'link', 'head', 'base', 'template']);
+const hasText = (text: string) => /[^ \t\r\n\f]/.test(text);
+
+/**
+ * Only text and inline tags at every depth, with text directly inside it (spec 0013 AC-2). A `nav`
+ * holding only links has none, so it stays a box and each link can be selected. `<pre>` is exempt.
+ */
+function isTextBlock(el: Element): boolean {
+  if (el.querySelector(`[${LOGO_ATTR}]`)) return false;
+  if (!Array.from(el.querySelectorAll('*')).every(d => INLINE_TAGS.has(d.localName.toLowerCase()))) return false;
+  if (el.localName.toLowerCase() === 'pre') return true;
+  return Array.from(el.childNodes).some(child => child.nodeType === 3 && hasText(child.textContent ?? ''));
+}
+
+function textNode(text: string): EditorComponent {
+  return {
+    id: uid(), type: 'element', name: 'text', tag: '#text', attrs: {}, props: { html: text },
+    styles: { desktop: {}, tablet: {}, mobile: {} },
+    children: [], editable: true, draggable: true, deletable: true,
+  };
+}
+
+function elementNode(el: Element, ctx: ImportCtx): EditorComponent | null {
+  const tag = el.localName.toLowerCase();
+  if (NOT_CONTENT.has(tag)) return null;
+
+  if (el.hasAttribute(LOGO_ATTR)) {
+    const logo = logoComponent();
+    const cls = cleanClassName(el.getAttribute('class'));
+    if (cls) logo.className = cls;
+    ctx.elements.set(el, logo);
+    return logo;
+  }
+
+  const attrs: Record<string, string> = {};
+  for (const attr of Array.from(el.attributes)) {
+    if (!/^(class|data-c|data-apx-.*)$/.test(attr.name)) attrs[attr.name] = attr.value;
+  }
+  const node: EditorComponent = {
+    id: uid(), type: 'element', name: tag, tag, attrs, props: {},
+    styles: { desktop: parseInlineStyles(el.getAttribute('style') || ''), tablet: {}, mobile: {} },
+    children: [], editable: true, draggable: true, deletable: true,
+  };
+  const cls = cleanClassName(el.getAttribute('class'));
+  if (cls) node.className = cls;
+  const animation = animationFromElement(el, 'element');
+  if (animation) node.animation = animation;
+  ctx.elements.set(el, node);
+
+  const id = attrs.id;
+  if (id && id === id.toLowerCase() && isValidAnchor(id) && !ctx.anchors.has(id)) {
+    node.anchor = id;
+    delete attrs.id;
+    ctx.anchors.set(id, { id: node.id, pageId: ctx.pageId });
+  }
+
+  if (tag === 'a') {
+    ctx.pending.push({
+      href: el.getAttribute('href'),
+      download: el.getAttribute('download'),
+      assign: link => {
+        // A page link with no matching page has no address to give back, so the original stays.
+        if (link.kind === 'page' && !link.pageId) return;
+        link.newTab = el.getAttribute('target') === '_blank';
+        node.link = link;
+        delete attrs.href;
+        delete attrs.target;
+        if (link.newTab) delete attrs.rel;
+        if (link.kind === 'file') delete attrs.download;
+      },
+    });
+  }
+
+  if (tag === 'svg' || tag === 'select' || tag === 'textarea' || isTextBlock(el)) node.props.html = el.innerHTML;
+  else node.children = elementChildren(el, ctx);
+  return node;
+}
+
+/** A parent's content in order: elements as nodes, text as `#text` nodes. */
+function elementChildren(parent: Element, ctx: ImportCtx): EditorComponent[] {
+  const inlineSibling = (node: ChildNode | null) => node?.nodeType === 1 && INLINE_BY_DEFAULT.has((node as Element).localName.toLowerCase());
+  const nodes: EditorComponent[] = [];
+  for (const child of Array.from(parent.childNodes)) {
+    if (child.nodeType === 1) {
+      const node = elementNode(child as Element, ctx);
+      if (node) nodes.push(node);
+    } else if (child.nodeType === 3) {
+      const text = child.textContent ?? '';
+      if (hasText(text) || parent.localName.toLowerCase() === 'pre') nodes.push(textNode(text));
+      else if (inlineSibling(child.previousSibling) && inlineSibling(child.nextSibling)) nodes.push(textNode(' '));
+    }
+  }
+  return nodes;
+}
+
+/** Tailwind sites only (spec 0013): the older import that guesses a component type. */
 function elementToComponent(el: Element, depth: number, ctx: ImportCtx): EditorComponent | null {
   const tag = el.tagName?.toLowerCase?.() || '';
   if (tag === 'script' || tag === 'style' || tag === 'meta' || tag === 'link' || tag === 'head') return null;
 
-  // A logo marker becomes a `logo` component; its SVG lives once in `globalStyles.logo` (spec 0008).
-  if (el.hasAttribute(LOGO_ATTR)) {
-    const logo: EditorComponent = {
-      id: uid(), type: 'logo', name: 'Logo', props: {},
-      styles: { desktop: {}, tablet: {}, mobile: {} },
-      children: [], editable: true, draggable: true, deletable: true,
-    };
-    if (ctx.css) {
-      const cls = cleanClassName(el.getAttribute('class'));
-      if (cls) logo.className = cls;
-    }
-    ctx.elements.set(el, logo);
-    return logo;
-  }
+  if (el.hasAttribute(LOGO_ATTR)) return logoComponent();
 
   let type: ComponentType;
   let name: string;
@@ -454,14 +554,9 @@ function elementToComponent(el: Element, depth: number, ctx: ImportCtx): EditorC
     type = 'container';
     name = 'Container';
   }
-  // Plain CSS sites keep the hero's and footer's real children (spec 0003 AC-6).
-  if (ctx.css && (type === 'hero' || type === 'footer')) {
-    name = type === 'hero' ? 'Hero' : 'Footer';
-    type = 'section';
-  }
 
   const inlineStyles = parseInlineStyles(el.getAttribute('style') || '');
-  const mergedStyles = ctx.css ? inlineStyles : mergeStyles(parseClasses(getClassString(el)), inlineStyles);
+  const mergedStyles = mergeStyles(parseClasses(getClassString(el)), inlineStyles);
 
   const props = extractTextContent(el);
 
@@ -539,14 +634,9 @@ function elementToComponent(el: Element, depth: number, ctx: ImportCtx): EditorC
     deletable: true,
   };
   if (navItems) component.navItems = navItems;
-  if (ctx.css) {
-    const cls = cleanClassName(el.getAttribute('class'));
-    if (cls) component.className = cls;
-  }
   // Animation presets come back from their `data-apx-*` attributes on both paths (spec 0004 AC-9).
   const animation = animationFromElement(el, type);
   if (animation) component.animation = animation;
-  ctx.elements.set(el, component);
 
   // A valid, unique HTML id on a target type becomes the element's anchor.
   const htmlId = (el.getAttribute('id') || '').toLowerCase();
@@ -603,7 +693,7 @@ function buildComponents(doc: Document, html: string, options: ImportOptions, cs
   const pages = options.pages ?? [];
 
   // Anchors already used on other pages stay reserved; the page being replaced does not count.
-  const ctx: ImportCtx = { pageId, anchors: new Map(), pending: [], css, elements: new Map() };
+  const ctx: ImportCtx = { pageId, anchors: new Map(), pending: [], elements: new Map() };
   for (const page of pages) {
     if (page.id === pageId) continue;
     walkComponents(page.components || [], c => {
@@ -611,12 +701,17 @@ function buildComponents(doc: Document, html: string, options: ImportOptions, cs
     });
   }
 
-  for (const child of Array.from(doc.body.children)) {
-    try {
-      const comp = elementToComponent(child, 0, ctx);
-      if (comp) components.push(comp);
-    } catch (err) {
-      console.error('elementToComponent error for child:', child.tagName, err);
+  if (css) {
+    // A plain CSS page imports whole or not at all, so nothing is lost without anyone knowing.
+    components.push(...elementChildren(doc.body, ctx));
+  } else {
+    for (const child of Array.from(doc.body.children)) {
+      try {
+        const comp = elementToComponent(child, 0, ctx);
+        if (comp) components.push(comp);
+      } catch (err) {
+        console.error('elementToComponent error for child:', child.tagName, err);
+      }
     }
   }
 
@@ -640,7 +735,7 @@ function buildComponents(doc: Document, html: string, options: ImportOptions, cs
 /** Legacy (Tailwind) import: components only. */
 export function htmlToComponents(html: string, options: ImportOptions = {}): EditorComponent[] {
   try {
-    const dom = new JSDOM(html, { contentType: 'text/html' });
+    const dom = parseGeneratedHtml(html, { contentType: 'text/html' });
     return buildComponents(dom.window.document, html, options, false).components;
   } catch (error) {
     console.error('HTML to schema conversion error:', error);
@@ -671,6 +766,22 @@ export function faviconFromHtml(html: string): string | undefined {
   return undefined;
 }
 
+/** Puts the edits in the exported `[data-c]` sheet back on their nodes, per device (spec 0013 AC-15). */
+function readHandEdits(styleTags: { open: string; text: string }[], elements: Map<Element, EditorComponent>): void {
+  const byId = new Map<string, EditorComponent[]>();
+  for (const [el, comp] of elements) {
+    const id = el.getAttribute('data-c');
+    if (id) byId.set(id, [...(byId.get(id) ?? []), comp]);
+  }
+  const rules = styleTags.filter(s => /\bdata-apexium-elements\b/i.test(s.open)).flatMap(s => readElementRules(s.text));
+  for (const rule of rules) {
+    for (const comp of byId.get(rule.id) ?? []) {
+      comp.styles[rule.device] = { ...comp.styles[rule.device], ...rule.styles };
+      comp.editedStyles = [...new Set([...(comp.editedStyles ?? []), ...Object.keys(rule.styles).map(key => `${rule.device}:${key}`)])];
+    }
+  }
+}
+
 export function htmlToPageData(html: string, options: ImportOptions = {}): PageData {
   const pageId = options.pageId ?? 'page-1';
   const asPages = (components: EditorComponent[]): Page[] => [{ id: pageId, name: 'Home', slug: '/', components }];
@@ -691,15 +802,16 @@ export function htmlToPageData(html: string, options: ImportOptions = {}): PageD
   let doc: Document;
   let built: ReturnType<typeof buildComponents>;
   try {
-    doc = new JSDOM(html, { contentType: 'text/html' }).window.document;
+    doc = parseGeneratedHtml(html, { contentType: 'text/html' }).window.document;
     built = buildComponents(doc, html, options, true);
   } catch (error) {
     console.error('HTML to schema conversion error:', error);
-    return { pages: asPages([embedFallback(html)]), globalStyles: withIcon({ mode: 'css' }) };
+    return { pages: asPages([embedFallback(html)]), globalStyles: withIcon({ mode: 'css', importFailed: true }) };
   }
 
   // The animation preset sheet and scripts (spec 0004) are rewritten on export, never site styles.
-  const sheets = Array.from(doc.querySelectorAll('style:not([data-apexium-anim])')).map(s => s.textContent ?? '');
+  const styleTags = styleElements(html);
+  const sheets = styleTags.filter(s => !/\bdata-apexium-(anim|elements)\b/i.test(s.open)).map(s => s.text);
   const script = Array.from(doc.querySelectorAll('script:not([src])'))
     .filter(s => !s.hasAttribute('data-apexium-pages') && !s.hasAttribute('data-apexium-link-guard') && !s.hasAttribute('data-apexium-anim'))
     .map(s => (s.textContent ?? '').trim())
@@ -710,30 +822,40 @@ export function htmlToPageData(html: string, options: ImportOptions = {}): PageD
     .filter(isFontLink);
 
   const site: SiteStyles = { mode: 'css' };
+  const description = doc.querySelector('meta[name="description"]')?.getAttribute('content');
+  if (doc.title) site.title = doc.title;
+  if (description) site.description = description;
   let fontLinks = linkHrefs;
+  // The site's sheet stays exactly as written, so an unedited site is the same page (AC-15).
+  site.css = sheets.join('\n');
   try {
     const cssLength = sheets.reduce((n, s) => n + s.length, 0);
     if (cssLength > LIMITS.css || script.length > LIMITS.script || linkHrefs.length > LIMITS.fontLinks) {
       throw new Error(`size limit exceeded (css ${cssLength}, script ${script.length}, font links ${linkHrefs.length})`);
     }
-    const result = resolveStylesheets(doc, sheets, new Set([...built.elements.keys(), doc.body]));
+    // Resolved values only fill the styles panel; export never writes them unless they are edited.
+    const result = resolveStylesheets(doc, sheets, new Set(built.elements.keys()));
     for (const [el, comp] of built.elements) {
       const styles = result.styles.get(el);
-      if (styles) comp.styles = styles;
+      if (!styles) continue;
+      // The resolver only keeps properties the panel knows, so other inline ones are carried over.
+      if (comp.type === 'element') styles.desktop = { ...comp.styles.desktop, ...styles.desktop };
+      comp.styles = styles;
     }
-    const body = result.styles.get(doc.body)?.desktop;
-    if (body && Object.keys(body).length > 0) site.body = body;
-    site.css = result.css;
     fontLinks = [...linkHrefs, ...result.imports.filter(isFontLink)];
   } catch (error) {
-    // AC-14: never fail the run or the load; keep the sheet as written.
+    // AC-14: never fail the run or the load; the sheet is already kept as written.
     console.error('[plain-css] stylesheet resolve skipped, keeping the sheet verbatim:', error);
-    site.css = sheets.join('\n');
   }
+  readHandEdits(styleTags, built.elements);
   const uniqueFonts = [...new Set(fontLinks)].slice(0, LIMITS.fontLinks);
   if (uniqueFonts.length > 0) site.fontLinks = uniqueFonts;
   if (script) site.script = script;
-  return { pages: asPages(built.components), globalStyles: withIcon(site) };
+  const components = built.components.flatMap(node => {
+    const clean = cleanNode(node);
+    return clean ? [clean] : [];
+  });
+  return { pages: asPages(components), globalStyles: withIcon(site) };
 }
 
 /**
@@ -826,9 +948,13 @@ export function componentsToHtml(pages: Page[], site: SiteStyles = {}): string {
     const styleParts: string[] = [];
     const styleStr = '';
     // The outermost link wins: nothing inside a linked element renders another <a>.
-    const ownLink = !insideLink && LINKABLE_TYPES.has(comp.type) ? linkAttrs(comp.link, ctx) : null;
+    const ownLink = !insideLink && LINKABLE_TYPES.has(comp.type) && (comp.type !== 'element' || comp.tag === 'a') ? linkAttrs(comp.link, ctx) : null;
     const inLink = insideLink || ownLink !== null;
-    const childrenHtml = (comp.children || []).filter(c => !c.hidden).map(c => renderOne(c, inLink)).join('\n');
+    // Real elements keep their real spacing, so nothing is added between their children.
+    const childrenHtml = (comp.children || []).filter(c => !c.hidden).map(c => renderOne(c, inLink)).join(comp.type === 'element' ? '' : '\n');
+    if (comp.type === 'element') {
+      return renderElement(comp, { link: ownLink, children: childrenHtml, anchor: ctx.anchors.get(comp.id)?.anchor, state, editor: false });
+    }
     const propsStr = Object.entries(comp.props)
       .filter(([, v]) => v && typeof v !== 'object')
       .map(([k, v]) => `${k}="${String(v).replace(/"/g, '&quot;')}"`)

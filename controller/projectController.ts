@@ -1,3 +1,4 @@
+import { CHARGE_REFUSALS, refillCredits } from '../lib/credits.js';
 import { type Request, type Response } from "express";
 import prisma from '../lib/prisma.js';
 import { rebuildPageData } from '../lib/htmlToSchema.js';
@@ -16,11 +17,18 @@ import {
     releaseJob,
     reserveJob,
     runGenerationJob,
+    fullEditMaxTokens,
+    SCOPED_MAX_TOKENS,
     stopJob,
     visibleHtml,
     writeStartMessages,
     type GenerationJob,
 } from '../lib/generationJobs.js';
+import { DAILY_LIMIT_MESSAGE, isAtDailyLimit } from '../lib/aiCapacity.js';
+import { applyScopedReply, planScopedEdit, scopedUserMessage, type ScopedPlan } from '../lib/scopedEdit.js';
+
+const MAX_REFERENCE_URLS = 2;
+const MAX_REFERENCE_CHARS = 2000;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -44,7 +52,7 @@ async function fetchUrlContent(url: string): Promise<string> {
             .replace(/<[^>]+>/g, ' ')
             .replace(/\s{2,}/g, ' ')
             .trim()
-            .slice(0, 4000);
+            .slice(0, MAX_REFERENCE_CHARS);
     } catch {
         return '';
     }
@@ -52,7 +60,7 @@ async function fetchUrlContent(url: string): Promise<string> {
 
 /** Build an optional reference block from any URLs found in the message */
 async function buildReferenceBlock(message: string): Promise<string> {
-    const urls = extractUrls(message);
+    const urls = extractUrls(message).slice(0, MAX_REFERENCE_URLS);
     if (urls.length === 0) return '';
 
     const fetched = await Promise.all(
@@ -101,6 +109,21 @@ REFERENCE CONTENT RULES:
 
 Apply the requested changes while preserving existing structure unless explicitly asked to replace it.`;
 
+// Section edits (spec 0011): `applyScopedReply` enforces this reply format.
+export const SCOPED_EDIT_PROMPT = `You edit part of an existing website. Output ONLY the changed parts in this format, with no explanation or markdown:
+<apx-block id="B2">the full replacement element</apx-block>
+<apx-css>new CSS rules, only if needed</apx-css>
+
+RULES:
+- Each apx-block holds exactly one element of the same kind as the original (header, nav, section, aside, or footer), with its closing tag. Keep its id and classes unless the request changes them.
+- Return only the blocks you changed, and change only what the request asks. Keep all other content, attributes, and links exactly.
+- Keep every data-c attribute and every data-apexium-logo element exactly as it is.
+- Never put <script> or <style> inside a block, and never output <html>, <head>, or <body>.
+- New styling goes only in apx-css, on a new class unique to this block that you add to the element, using the var() tokens. Never restyle a shared class. Keep it under 3000 characters, with no @import or @font-face.
+${ANIMATION_PROMPT_RULE}
+${MEDIA_PROMPT_RULE}
+${EDIT_DESIGN_RULE}`;
+
 // Plain CSS projects (spec 0003); the Tailwind prompt above stays for legacy projects.
 export const PLAIN_CSS_EDIT_PROMPT = `You are an expert web developer.
 
@@ -127,6 +150,15 @@ REFERENCE CONTENT RULES:
 - Do NOT copy any text content verbatim from references — only use them for visual/design guidance.
 
 Apply the requested changes while preserving existing structure unless explicitly asked to replace it.`;
+
+/** A save or rollback during the run moved the page, so the splice no longer applies. */
+async function assembleScopedEdit(projectId: string, plan: ScopedPlan, raw: string): Promise<string | null> {
+    const latest = await prisma.websiteProject.findUnique({
+        where: { id: projectId },
+        select: { current_code: true },
+    });
+    return latest?.current_code === plan.source ? applyScopedReply(plan, raw) : null;
+}
 
 // ─── Controllers ─────────────────────────────────────────────────────────────
 
@@ -160,6 +192,12 @@ async function startEditRun(req: Request, res: Response, versionDescription: (me
 
         await recoverLostRun(projectIdStr, userid);
 
+        if (isAtDailyLimit()) {
+            return res.status(503).json({ error: DAILY_LIMIT_MESSAGE });
+        }
+
+        await refillCredits(userid);
+
         const reserved = reserveJob(projectIdStr, userid, 'edit', versionDescription(message));
         if (reserved === 409) {
             return res.status(409).json({ error: 'A generation is already running for this project.' });
@@ -169,9 +207,11 @@ async function startEditRun(req: Request, res: Response, versionDescription: (me
         }
         job = reserved;
 
-        if (!(await deductCredits(job))) {
+        const charge = await deductCredits(job);
+        if (charge !== 'charged') {
             releaseJob(job);
-            return res.status(403).json({ error: 'Insufficient credits to edit project.' });
+            const { status, error } = CHARGE_REFUSALS[charge];
+            return res.status(status).json({ error });
         }
 
         await writeStartMessages(job, message);
@@ -182,16 +222,15 @@ async function startEditRun(req: Request, res: Response, versionDescription: (me
         // Legacy Tailwind projects keep the Tailwind prompt (spec 0003 AC-2).
         const plainCss = !usesTailwind(currentCode);
         job.plainCss = plainCss;
-        void runGenerationJob(job, async () => {
-            // Reference fetching runs inside the job so it never delays the response.
-            const referenceBlock = await buildReferenceBlock(message);
-            return [
+        const fullEdit = (referenceBlock: string) => ({
+            maxTokens: fullEditMaxTokens(currentCode),
+            messages: [
                 {
-                    role: 'system',
+                    role: 'system' as const,
                     content: plainCss ? PLAIN_CSS_EDIT_PROMPT : CODE_GEN_SYSTEM_PROMPT,
                 },
                 {
-                    role: 'user',
+                    role: 'user' as const,
                     content: `CURRENT WEBSITE CODE:
 ${currentCode}
 
@@ -201,7 +240,24 @@ ${message}${referenceBlock}
 TASK:
 Modify the existing website code according to the request while keeping it fully functional and ${plainCss ? 'in plain HTML and CSS (no Tailwind)' : 'Tailwind-based'}. Return only the final updated HTML.`,
                 },
-            ];
+            ],
+        });
+        void runGenerationJob(job, async () => {
+            const plan = planScopedEdit(currentCode, message);
+            if (plan) {
+                return {
+                    maxTokens: SCOPED_MAX_TOKENS,
+                    thinkingOff: true,
+                    messages: [
+                        { role: 'system' as const, content: SCOPED_EDIT_PROMPT },
+                        { role: 'user' as const, content: scopedUserMessage(plan, message) },
+                    ],
+                    assemble: (raw: string) => assembleScopedEdit(projectIdStr, plan, raw),
+                    fallback: fullEdit(''),
+                };
+            }
+            // Reference fetching runs inside the job so it never delays the response.
+            return fullEdit(await buildReferenceBlock(message));
         });
     } catch (error: any) {
         if (job) await finalize(job, 'failed');
@@ -425,7 +481,7 @@ export const getPublishedProjects = async (req: Request, res: Response) => {
     try {
         const projects = await prisma.websiteProject.findMany({
             where: { isPublished: true },
-            include: { user: true },
+            include: { user: { select: { name: true, email: true } } },
             orderBy: { updatedAt: 'desc' },
         });
 

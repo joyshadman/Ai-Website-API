@@ -9,6 +9,8 @@
     "prebuild": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "build": "prisma generate && tsc",
     "start": "node dist/server.js",
+    "samples": "tsx scripts/sampleSites.ts",
+    "roundtrip": "tsx scripts/roundTrip.ts",
     "postinstall": "prisma generate",
     "vercel-build": "prisma generate"
   },
@@ -24,6 +26,7 @@
     "@types/cors": "^2.8.19",
     "better-auth": "^1.6.2",
     "cors": "^2.8.6",
+    "disposable-email-domains": "^1.0.62",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "image-size": "^2.0.4",
@@ -42,6 +45,7 @@
     "@types/node": "^25.6.0",
     "@types/nodemailer": "^8.0.0",
     "@types/pg": "^8.20.0",
+    "playwright": "^1.65.0",
     "tsx": "^4.22.1",
     "typescript": "^6.0.2"
   }

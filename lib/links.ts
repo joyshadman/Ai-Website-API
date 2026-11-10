@@ -32,7 +32,7 @@ export interface Page {
 
 /** Element types that can carry a `link`; also the section link target list. */
 export const LINKABLE_TYPES: ReadonlySet<string> = new Set([
-  'button', 'text', 'heading', 'image', 'icon', 'card', 'container', 'section', 'row', 'column',
+  'button', 'text', 'heading', 'image', 'icon', 'card', 'container', 'section', 'row', 'column', 'element',
 ]);
 
 /** An uploaded file's URL; anything else publishes no File link (spec 0009 AC-11). */

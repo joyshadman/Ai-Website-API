@@ -1,3 +1,4 @@
+import { chargeRefusal, DAILY_START_LIMIT, GENERATION_COST, type ChargeRefusal } from './credits.js';
 import { randomUUID } from 'node:crypto';
 import type OpenAI from 'openai';
 import openai, { assertAiKeyConfigured } from '../config/openai.js';
@@ -9,12 +10,14 @@ import { extractHtmlCode } from './extractCode.js';
 import { withAnimationBlocks } from './animations.js';
 import { checkDesign, directionFromHtml } from './designChecks.js';
 import { withCreateLogo } from './logo.js';
+import { repairCreatedSite } from './repairSite.js';
+import { BadOutputError, classifyFailure, failureCause, isThinkingRequiredError, markDailyLimit, markRequiresThinking, pickModels, recordFailure, requiresThinking, type AttemptFailure } from './aiCapacity.js';
 
 /**
  * In memory registry of running AI generations (spec 0001).
  *
- * Every create, edit, and revision runs as one streamed OpenRouter call held in
- * this process. The builder polls `/api/project/progress/:projectId` for the
+ * Every create, edit, and revision streams from up to three free models in turn
+ * (spec 0010), held in this process. The builder polls `/api/project/progress/:projectId` for the
  * HTML written so far. The registry assumes a single API instance; running
  * several would need a shared store.
  */
@@ -27,10 +30,21 @@ export const DONE_CREATE = 'I generated the website! You can now preview it and 
 export const DONE_EDIT = "I've made the changes to your website! You can now preview it";
 export const FAILED = 'Generation failed. Your credits have been refunded. Please try again.';
 export const STOPPED = 'Generation stopped. Your credits have been refunded.';
+// `getLatestRunState` reads the outcome from the `Generation failed` prefix.
+const FAILED_MINUTE_LIMIT = 'Generation failed. Free AI is busy right now and your credits have been refunded. Please try again in a minute.';
+const FAILED_DAILY_LIMIT = 'Generation failed. Free AI is at capacity today and your credits have been refunded. Please try again after the daily reset.';
 
-export const GENERATION_COST = 5;
+
+// Generous on purpose: these stop runaway replies, not normal ones (spec 0011).
+export const CREATE_MAX_TOKENS = 32_000;
+export const SCOPED_MAX_TOKENS = 6_000;
+const SCOPED_THINKING_MAX_TOKENS = 16_000;
+/** About 20,000 tokens of thinking with no page text yet ends the try (AC-13). */
+const MAX_THINKING_CHARS = 80_000;
+export const fullEditMaxTokens = (currentCode: string) => Math.max(CREATE_MAX_TOKENS, Math.ceil(currentCode.length / 3 * 1.3));
 
 const STALL_MS = 90_000;
+const ATTEMPT_STALL_MS = 60_000;
 const MAX_RUN_MS = 5 * 60_000;
 const CHECK_MS = 10_000;
 const MAX_RAW_CHARS = 2 * 1024 * 1024;
@@ -41,7 +55,7 @@ const MAX_JOBS_PER_USER = 2;
 export type JobKind = 'create' | 'edit';
 export type JobOutcome = 'done' | 'failed' | 'stopped';
 export type RunOutcome = JobOutcome | 'none';
-type StopReason = 'user' | 'stall' | 'timeout';
+type StopReason = 'user' | 'timeout';
 
 export interface GenerationJob {
     projectId: string;
@@ -49,12 +63,14 @@ export interface GenerationJob {
     kind: JobKind;
     versionDescription: string;
     raw: string;
-    phase: 'thinking' | 'writing';
+    phase: 'thinking' | 'writing' | 'switching' | 'applying';
     runId: string;
     visibleStart: number | null;
     startedAt: number;
     lastProgressAt: number;
     abort: AbortController;
+    /** Ends only the current model's try, for a stall. `abort` ends the whole run. */
+    attemptAbort: AbortController | null;
     timer: NodeJS.Timeout | null;
     stopReason: StopReason | null;
     settled: boolean;
@@ -64,6 +80,27 @@ export interface GenerationJob {
 }
 
 type ChatMessages = OpenAI.Chat.ChatCompletionMessageParam[];
+
+export interface GenerationRequest {
+    messages: ChatMessages;
+    maxTokens: number;
+    /** Section edits: send `reasoning: { enabled: false }`, unless this model must think. */
+    thinkingOff?: boolean;
+    /** Section edits: builds the full page from the reply, or returns null (spec 0011). */
+    assemble?: (raw: string) => Promise<string | null>;
+    /** Used for the remaining attempts after bad output. */
+    fallback?: { messages: ChatMessages; maxTokens: number };
+}
+
+interface RepairLog {
+    repairs: string[];
+    failuresBefore: string[];
+}
+
+interface TokenUse {
+    promptTokens: number | null;
+    completionTokens: number | null;
+}
 
 // OpenRouter reasoning fields are not in the OpenAI SDK types.
 type OpenRouterDelta = OpenAI.Chat.ChatCompletionChunk.Choice.Delta & {
@@ -110,6 +147,7 @@ export function reserveJob(
         startedAt: now,
         lastProgressAt: now,
         abort: new AbortController(),
+        attemptAbort: null,
         timer: null,
         stopReason: null,
         settled: false,
@@ -125,15 +163,28 @@ export function releaseJob(job: GenerationJob): void {
     if (jobs.get(job.projectId) === job) jobs.delete(job.projectId);
 }
 
-/** Atomic deduct: only succeeds when the user still has enough credits. */
-export async function deductCredits(job: GenerationJob): Promise<boolean> {
+/** Atomic: one statement checks both limits, charges, and counts the start (spec 0014 AC-7). */
+export async function deductCredits(job: GenerationJob): Promise<'charged' | ChargeRefusal> {
     const { count } = await prisma.user.updateMany({
-        where: { id: job.userId, credits: { gte: GENERATION_COST } },
-        data: { credits: { decrement: GENERATION_COST } },
+        where: {
+            id: job.userId,
+            credits: { gte: GENERATION_COST },
+            generationStartsToday: { lt: DAILY_START_LIMIT },
+        },
+        data: {
+            credits: { decrement: GENERATION_COST },
+            generationStartsToday: { increment: 1 },
+        },
     });
-    if (count === 0) return false;
-    job.creditsDeducted = true;
-    return true;
+    if (count > 0) {
+        job.creditsDeducted = true;
+        return 'charged';
+    }
+    const user = await prisma.user.findUnique({
+        where: { id: job.userId },
+        select: { credits: true, generationStartsToday: true },
+    });
+    return chargeRefusal(user) ?? 'no_credits';
 }
 
 /** Writes the user message and the working marker; the marker id becomes `runId`. */
@@ -172,22 +223,49 @@ export function stopJob(projectId: string): boolean {
  * AC-9). Never throws: a check can't affect the save. An edit of a site made before spec 0007
  * (no direction meta in its previous code) is `legacy`, so only the motion and script checks run.
  */
-function logDesignCheck(job: GenerationJob, code: string, previousCode: string): void {
+function logDesignCheck(job: GenerationJob, code: string, previousCode: string, repairLog: RepairLog | null): void {
     try {
         if (usesTailwind(code)) return;
         const legacy = job.kind === 'edit' && directionFromHtml(previousCode) === null;
         const result = checkDesign(code, { kind: job.kind, legacy });
-        console.info('[design-check]', JSON.stringify({ projectId: job.projectId, kind: job.kind, ...result }));
+        console.info('[design-check]', JSON.stringify({ projectId: job.projectId, kind: job.kind, ...result, ...repairLog }));
     } catch (error) {
         console.error('[design-check] check failed to run', error);
     }
 }
 
 /**
+ * The steps every saved create goes through, shared with the sample script (spec 0012).
+ * The logo and repair steps can never stop a save and never cost a request or credits.
+ */
+export function prepareCreatedSite(generated: string): { code: string } & RepairLog {
+    let code = generated;
+    let repairs: string[] = [];
+    let failuresBefore: string[] = [];
+    // A new site's logo: the cleaned AI mark in every marker, or the monogram (spec 0008 AC-1, AC-4).
+    try {
+        code = withCreateLogo(code).html;
+    } catch (error) {
+        console.error('[logo] create logo step skipped:', error);
+    }
+    if (!usesTailwind(code)) {
+        try {
+            failuresBefore = checkDesign(code, { kind: 'create', legacy: false }).failures;
+            const repaired = repairCreatedSite(code);
+            code = repaired.html;
+            repairs = repaired.repairs;
+        } catch (error) {
+            console.error('[repair] create repair step skipped:', error);
+        }
+    }
+    return { code: withAnimationBlocks(code), repairs, failuresBefore };
+}
+
+/**
  * The single owner of every ending (AC-11). Claims the ending synchronously,
  * so a run can never both save a version and refund, or refund twice.
  */
-export async function finalize(job: GenerationJob, outcome: JobOutcome, code?: string): Promise<void> {
+export async function finalize(job: GenerationJob, outcome: JobOutcome, code?: string, failureMessage: string = FAILED): Promise<void> {
     if (job.settled) return;
     job.settled = true;
     if (job.timer) clearInterval(job.timer);
@@ -195,17 +273,15 @@ export async function finalize(job: GenerationJob, outcome: JobOutcome, code?: s
     if (jobs.get(job.projectId) === job) jobs.delete(job.projectId);
 
     if (outcome === 'done' && code) {
-        // A new site's logo: the cleaned AI mark in every marker, or the monogram (spec 0008 AC-1, AC-4).
-        // Never fails the save and never costs credits.
+        let repairLog: RepairLog | null = null;
         if (job.kind === 'create') {
-            try {
-                code = withCreateLogo(code).html;
-            } catch (error) {
-                console.error('[logo] create logo step skipped:', error);
-            }
+            const prepared = prepareCreatedSite(code);
+            code = prepared.code;
+            repairLog = { repairs: prepared.repairs, failuresBefore: prepared.failuresBefore };
+        } else {
+            // Exactly one copy of the preset sheet and scripts when the page uses presets (spec 0007 AC-6).
+            code = withAnimationBlocks(code);
         }
-        // Exactly one copy of the preset sheet and scripts when the page uses presets (spec 0007 AC-6).
-        code = withAnimationBlocks(code);
         try {
             const versionId = randomUUID();
             // Links in the new HTML match against the project's current pages (spec 0002).
@@ -234,7 +310,7 @@ export async function finalize(job: GenerationJob, outcome: JobOutcome, code?: s
                     data: { current_code: code, current_version_index: versionId, pageData },
                 }),
             ]);
-            logDesignCheck(job, code, current?.current_code ?? '');
+            logDesignCheck(job, code, current?.current_code ?? '', repairLog);
             return;
         } catch (error) {
             // The transaction rolled back, so nothing was saved: refund instead.
@@ -248,7 +324,7 @@ export async function finalize(job: GenerationJob, outcome: JobOutcome, code?: s
             prisma.conversation.create({
                 data: {
                     role: 'assistant',
-                    content: outcome === 'stopped' ? STOPPED : FAILED,
+                    content: outcome === 'stopped' ? STOPPED : failureMessage,
                     projectId: job.projectId,
                 },
             }),
@@ -266,65 +342,164 @@ export async function finalize(job: GenerationJob, outcome: JobOutcome, code?: s
 
 // ─── Running a job ───────────────────────────────────────────────────────────
 
+/** Streams one model into `job.raw` and returns its usable HTML, or throws. */
+async function streamAttempt(job: GenerationJob, model: string, request: GenerationRequest, tokens: TokenUse): Promise<string> {
+    const attemptAbort = new AbortController();
+    job.attemptAbort = attemptAbort;
+    const signal = AbortSignal.any([job.abort.signal, attemptAbort.signal]);
+
+    const thinkingOff = request.thinkingOff === true && !requiresThinking(model);
+    const stream = await openai.chat.completions.create({
+        model,
+        messages: request.messages,
+        max_tokens: request.thinkingOff && !thinkingOff ? SCOPED_THINKING_MAX_TOKENS : request.maxTokens,
+        stream: true,
+        stream_options: { include_usage: true },
+        reasoning: thinkingOff ? { enabled: false } : { effort: 'low' },
+        // Every retry spends a shared daily request, so the attempt loop owns them all.
+    } as OpenAI.Chat.ChatCompletionCreateParamsStreaming, { signal, maxRetries: 0 });
+
+    let finishReason: string | null = null;
+    let thinkingChars = 0;
+    for await (const chunk of stream) {
+        const streamError = (chunk as { error?: { code?: unknown; message?: string } }).error;
+        if (streamError) throw Object.assign(new Error(streamError.message ?? 'AI stream error'), { status: streamError.code });
+
+        if (chunk.usage) {
+            tokens.promptTokens = chunk.usage.prompt_tokens ?? null;
+            tokens.completionTokens = chunk.usage.completion_tokens ?? null;
+        }
+        finishReason = chunk.choices[0]?.finish_reason ?? finishReason;
+
+        const delta = chunk.choices[0]?.delta as OpenRouterDelta | undefined;
+        if (!delta) continue;
+        if (delta.reasoning || delta.reasoning_details) job.lastProgressAt = Date.now();
+        thinkingChars += delta.reasoning?.length ?? 0;
+        if (thinkingChars > MAX_THINKING_CHARS && !job.raw) throw new BadOutputError('AI spent the try thinking; nothing was saved.');
+
+        const content = delta.content;
+        if (!content) continue;
+        job.lastProgressAt = Date.now();
+        job.phase = request.assemble ? 'applying' : 'writing';
+        const searchFrom = Math.max(0, job.raw.length - 16);
+        job.raw += content;
+        if (job.raw.length > MAX_RAW_CHARS) {
+            throw new Error('AI output exceeded the 2 MB limit');
+        }
+        if (job.visibleStart === null && !request.assemble) {
+            const found = job.raw.slice(searchFrom).search(/<!doctype|<html/i);
+            if (found !== -1) job.visibleStart = searchFrom + found;
+        }
+    }
+
+    // The SDK ends the loop quietly on an abort, so a stall or stop must be caught here.
+    if (signal.aborted) throw new Error('Aborted');
+
+    // A reply cut off by the output limit is never saved, even when it looks like HTML.
+    if (finishReason === 'length') throw new BadOutputError('AI reply was cut off; nothing was saved.');
+
+    const code = request.assemble ? await request.assemble(job.raw) : extractHtmlCode(job.raw);
+    if (!code) throw new BadOutputError('AI returned empty or invalid HTML; nothing was saved.');
+    return code;
+}
+
+/** A model that refuses to run with thinking off gets one immediate retry with it on (AC-14). */
+async function streamWithThinkingRetry(job: GenerationJob, model: string, request: GenerationRequest, tokens: TokenUse): Promise<string> {
+    try {
+        return await streamAttempt(job, model, request, tokens);
+    } catch (error) {
+        if (!request.thinkingOff || requiresThinking(model) || !isThinkingRequiredError(error)) throw error;
+        markRequiresThinking(model);
+        return streamAttempt(job, model, request, tokens);
+    }
+}
+
+/** A new `runId` makes the builder and the progress route restart the preview from nothing. */
+function beginRetry(job: GenerationJob, markerId: string, attempt: number): void {
+    job.raw = '';
+    job.visibleStart = null;
+    job.lastProgressAt = Date.now();
+    job.phase = 'switching';
+    job.runId = `${markerId}:${attempt}`;
+}
+
+function logAttempt(job: GenerationJob, attempt: number, model: string, result: string, startedAt: number, status: number | null, tokens: TokenUse): void {
+    console.info('[ai-attempt]', JSON.stringify({ projectId: job.projectId, attempt, model, result, ms: Date.now() - startedAt, status, ...tokens }));
+}
+
+/** The message that ends the run for this failure, or null to move on to the next model. */
+function endingMessage(failure: AttemptFailure, error: unknown, status: number | null): string | null {
+    if (failure === 'minute_limit') return FAILED_MINUTE_LIMIT;
+    if (failure === 'day_limit') {
+        markDailyLimit(error);
+        return FAILED_DAILY_LIMIT;
+    }
+    if (failure === 'auth') {
+        console.error('[ai-attempt] key or account problem:', status, failureCause(error));
+        return FAILED;
+    }
+    return null;
+}
+
 /**
- * Streams one OpenRouter call (low reasoning, no retries) into `job.raw` and
- * ends through `finalize`. `buildMessages` runs inside the job, after the
+ * Tries up to three free models (spec 0010) and ends through `finalize`, so one
+ * charge covers every attempt. `buildMessages` runs inside the job, after the
  * response was sent, so slow work like URL reference fetching never blocks it.
  */
 export async function runGenerationJob(
     job: GenerationJob,
-    buildMessages: () => Promise<ChatMessages>
+    buildRequest: () => Promise<GenerationRequest>
 ): Promise<void> {
     try {
         assertAiKeyConfigured();
-        const messages = await buildMessages();
+        let request = await buildRequest();
+        if (request.assemble) job.phase = 'applying';
         if (job.abort.signal.aborted) throw new Error('Aborted before the request was sent');
 
         job.startedAt = Date.now();
         job.lastProgressAt = job.startedAt;
         job.timer = setInterval(() => {
             const now = Date.now();
-            if (now - job.lastProgressAt > STALL_MS) job.stopReason ??= 'stall';
-            else if (now - job.startedAt > MAX_RUN_MS) job.stopReason ??= 'timeout';
-            else return;
-            job.abort.abort();
+            if (now - job.startedAt > MAX_RUN_MS) {
+                job.stopReason ??= 'timeout';
+                job.abort.abort();
+            } else if (now - job.lastProgressAt > ATTEMPT_STALL_MS) {
+                job.attemptAbort?.abort();
+            }
         }, CHECK_MS);
 
-        const stream = await openai.chat.completions.create({
-            model: 'gpt-oss-120b',
-            messages,
-            stream: true,
-            reasoning: { effort: 'low' },
-        } as OpenAI.Chat.ChatCompletionCreateParamsStreaming, { signal: job.abort.signal });
+        const markerId = job.runId;
+        let code: string | null = null;
+        let failureMessage = FAILED;
 
-        for await (const chunk of stream) {
-            const delta = chunk.choices[0]?.delta as OpenRouterDelta | undefined;
-            if (!delta) continue;
-            if (delta.reasoning || delta.reasoning_details) job.lastProgressAt = Date.now();
-
-            const content = delta.content;
-            if (!content) continue;
-            job.lastProgressAt = Date.now();
-            job.phase = 'writing';
-            const searchFrom = Math.max(0, job.raw.length - 16);
-            job.raw += content;
-            if (job.raw.length > MAX_RAW_CHARS) {
-                throw new Error('AI output exceeded the 2 MB limit');
-            }
-            if (job.visibleStart === null) {
-                const found = job.raw.slice(searchFrom).search(/<!doctype|<html/i);
-                if (found !== -1) job.visibleStart = searchFrom + found;
+        for (const [index, model] of pickModels().entries()) {
+            const attempt = index + 1;
+            if (attempt > 1) beginRetry(job, markerId, attempt);
+            const attemptStartedAt = Date.now();
+            const tokens: TokenUse = { promptTokens: null, completionTokens: null };
+            try {
+                code = await streamWithThinkingRetry(job, model, request, tokens);
+                logAttempt(job, attempt, model, 'ok', attemptStartedAt, null, tokens);
+                break;
+            } catch (error) {
+                if (job.abort.signal.aborted) throw error;
+                const { failure, status } = classifyFailure(error);
+                logAttempt(job, attempt, model, job.attemptAbort?.signal.aborted ? 'stall' : failure, attemptStartedAt, status, tokens);
+                recordFailure(model, failure);
+                // A bad section reply says the section approach failed, so the rest are full page edits.
+                if (failure === 'bad_output' && request.fallback) request = request.fallback;
+                const ending = endingMessage(failure, error, status);
+                if (ending) {
+                    failureMessage = ending;
+                    break;
+                }
             }
         }
 
-        if (job.abort.signal.aborted) throw new Error('Aborted');
-
-        const code = extractHtmlCode(job.raw);
-        if (!code) throw new Error('AI returned empty or invalid HTML; nothing was saved.');
-
         // No await between this check and finalize claiming the ending.
         if (job.abort.signal.aborted) throw new Error('Aborted');
-        await finalize(job, 'done', code);
+        if (code) await finalize(job, 'done', code);
+        else await finalize(job, 'failed', undefined, failureMessage);
     } catch (error) {
         if (job.abort.signal.aborted) {
             await finalize(job, job.stopReason === 'user' ? 'stopped' : 'failed');

@@ -1,7 +1,7 @@
 import { type Request, type Response } from "express";
 import prisma from '../lib/prisma.js';
 import { htmlToPageData, componentsToHtml, toPages } from '../lib/htmlToSchema.js';
-import { mergeSiteStyles } from '../lib/siteStyles.js';
+import { cleanPageNodes, mergeSiteStyles } from '../lib/siteStyles.js';
 
 /** Rebuild from HTML only when there are no pages yet, so saved pages and `globalStyles` survive (spec 0003 AC-10). */
 const hasNoPages = (pageData: any) => toPages(pageData).every(p => !p.components?.length);
@@ -68,7 +68,8 @@ export const saveEditorPage = async (req: Request, res: Response) => {
       let stored: any = {};
       try { stored = JSON.parse((project as any).pageData || '{}'); } catch { stored = {}; }
       // Pages publish as one document; a legacy { components } body maps to one page.
-      const pages = toPages(pageData);
+      if (stored.globalStyles?.importFailed) return res.status(409).json({ error: 'not_editable' });
+      const pages = cleanPageNodes(toPages(pageData));
       const globalStyles = mergeSiteStyles(stored.globalStyles, pageData?.globalStyles);
       data.pageData = JSON.stringify({ pages, globalStyles });
       data.current_code = componentsToHtml(pages, globalStyles);

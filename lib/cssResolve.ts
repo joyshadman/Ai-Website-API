@@ -17,8 +17,8 @@ export function usesTailwind(html: string): boolean {
 // ─── Parsing ─────────────────────────────────────────────────────────────────
 
 interface Decl { prop: string; value: string; important: boolean }
-interface StyleRule { kind: 'rule'; selector: string; decls: Decl[]; raw: string; nested: boolean }
-interface AtRule { kind: 'at'; name: string; prelude: string; raw: string; children?: CssNode[] }
+interface StyleRule { kind: 'rule'; selector: string; decls: Decl[]; nested: boolean }
+interface AtRule { kind: 'at'; name: string; prelude: string; children?: CssNode[] }
 type CssNode = StyleRule | AtRule;
 
 function skipString(text: string, i: number): number {
@@ -99,20 +99,19 @@ function parseSheet(text: string): CssNode[] {
     if (text[stop] === '}') { i = stop + 1; continue; }
     const head = removeComments(text.slice(i, stop)).trim();
     if (text[stop] === ';') {
-      if (head.startsWith('@')) nodes.push({ kind: 'at', name: atName(head), prelude: atPrelude(head), raw: `${head};` });
+      if (head.startsWith('@')) nodes.push({ kind: 'at', name: atName(head), prelude: atPrelude(head) });
       i = stop + 1;
       continue;
     }
     const end = closeOf(text, stop, '{', '}');
     const body = text.slice(stop + 1, end);
-    const raw = `${head} {${body}}`;
     if (head.startsWith('@')) {
       const name = atName(head);
       nodes.push(name === 'media'
-        ? { kind: 'at', name, prelude: atPrelude(head), raw, children: parseSheet(body) }
-        : { kind: 'at', name, prelude: atPrelude(head), raw });
+        ? { kind: 'at', name, prelude: atPrelude(head), children: parseSheet(body) }
+        : { kind: 'at', name, prelude: atPrelude(head) });
     } else {
-      nodes.push({ kind: 'rule', selector: head, decls: parseDecls(body), raw, nested: findTop(body, 0, '{') !== -1 });
+      nodes.push({ kind: 'rule', selector: head, decls: parseDecls(body), nested: findTop(body, 0, '{') !== -1 });
     }
     i = end + 1;
   }
@@ -121,9 +120,6 @@ function parseSheet(text: string): CssNode[] {
 
 const atName = (head: string) => /^@([\w-]+)/.exec(head)?.[1]?.toLowerCase() ?? '';
 const atPrelude = (head: string) => head.replace(/^@[\w-]+/, '').trim();
-
-const declText = (d: Decl) => `${d.prop}: ${d.value}${d.important ? ' !important' : ''}`;
-const ruleText = (selectors: string[], decls: Decl[]) => `${selectors.join(', ')} { ${decls.map(declText).join('; ')}; }`;
 
 // ─── Selectors ───────────────────────────────────────────────────────────────
 
@@ -194,12 +190,12 @@ function compare(x: Specificity, y: Specificity): number {
   return x[0] - y[0] || x[1] - y[1] || x[2] - y[2];
 }
 
-/** State and pseudo element selectors never resolve onto a component; they stay residual. */
+/** State and pseudo element selectors never resolve onto a component. */
 const STATEFUL_RE = /::|:(hover|focus|focus-visible|focus-within|active|visited|target|checked|before|after|first-line|first-letter)(?![\w-])/i;
 
 // ─── Values ──────────────────────────────────────────────────────────────────
 
-/** `StyleProperties` keys a declaration may move into (`flex` stays residual, spec 0003 step 5). */
+/** `StyleProperties` keys the styles panel can show (`flex` is left out, spec 0003 step 5). */
 const STYLE_KEYS = new Set([
   'margin', 'padding', 'width', 'height', 'maxWidth', 'minWidth', 'minHeight',
   'border', 'borderRadius', 'boxShadow', 'opacity', 'backgroundColor', 'backgroundSize', 'backgroundPosition',
@@ -212,11 +208,11 @@ const STYLE_KEYS = new Set([
 
 const kebabToCamel = (s: string) => s.replace(/-([a-z])/g, (_, ch: string) => ch.toUpperCase());
 
-/** The `StyleProperties` key a declaration moves into, or null when it stays residual. */
+/** The `StyleProperties` key a declaration fills, or null when the panel has no field for it. */
 function styleKey(prop: string, value: string): string | null {
   if (prop.startsWith('--')) return null;
   if (prop === 'background' || prop === 'background-image') {
-    // Only a single gradient, url, or plain color moves; layered shorthands stay residual.
+    // Only a single gradient, url, or plain color fits a panel field; layered shorthands do not.
     if (findTop(value.trim(), 0, ' ,') !== -1) return null;
     if (/gradient\(/i.test(value)) return 'backgroundGradient';
     if (/^url\(/i.test(value.trim())) return 'backgroundImage';
@@ -257,7 +253,7 @@ const APPLIES: Record<Device, Device[]> = {
   mobile: ['mobile'],
 };
 
-/** The device a `@media` maps to, or null when it stays residual whole (spec 0003 step 6). */
+/** The device a `@media` maps to, or null when the panel can't show it (spec 0003 step 6). */
 function mediaDevice(prelude: string): Device | null {
   const m = /^(?:(?:only\s+)?(?:screen|all)\s+and\s+)?\(\s*max-width\s*:\s*([\d.]+)(px|em|rem)\s*\)$/i.exec(prelude.trim());
   if (!m) return null;
@@ -274,8 +270,6 @@ export type DeviceStyles = Record<Device, StyleProperties>;
 export interface ResolveResult {
   /** Resolved styles per target element: desktop full, tablet and mobile as deltas. */
   styles: Map<Element, DeviceStyles>;
-  /** The residual sheet. */
-  css: string;
   /** URLs of `@import` rules, for the caller's font link list. */
   imports: string[];
 }
@@ -285,9 +279,9 @@ interface Candidate { key: string; value: string; important: boolean; spec: Spec
 interface Unit { rule: StyleRule; device: Device }
 
 /**
- * Works out each target element's styles from `sheets` (in document order) and
- * returns what is left as the residual sheet. `targets` are the elements that
- * became components, plus `<body>`. Selectors match the original document.
+ * Works out each target element's styles from `sheets` (in document order), to fill the
+ * styles panel. The sheets themselves are left as written (spec 0013 AC-15). `targets` are
+ * the elements that became components. Selectors match the original document.
  */
 export function resolveStylesheets(doc: Document, sheets: string[], targets: Set<Element>): ResolveResult {
   const nodes = sheets.flatMap(parseSheet);
@@ -309,22 +303,15 @@ export function resolveStylesheets(doc: Document, sheets: string[], targets: Set
     for (const d of rule.decls) if (d.prop.startsWith('--')) for (const dev of APPLIES[device]) vars[dev].set(d.prop, d.value);
   }
 
-  // Match each selector; decide per selector whether its declarations move or the rule stays whole.
+  // Match each selector and collect its declarations for the elements it reaches.
   const candidates = new Map<Element, Candidate[]>();
-  const plan = new Map<StyleRule, { whole: string[]; reduced: string[] }>();
   let order = 0;
   for (const { rule, device } of units) {
-    const whole: string[] = [];
-    const reduced: string[] = [];
-    plan.set(rule, { whole, reduced });
-    if (rule.nested) { whole.push(rule.selector); continue; }
+    if (rule.nested) continue;
     for (const selector of splitSelectors(rule.selector)) {
-      if (STATEFUL_RE.test(selector)) { whole.push(selector); continue; }
+      if (STATEFUL_RE.test(selector)) continue;
       let matched: Element[];
-      try { matched = Array.from(doc.querySelectorAll(selector)); } catch { whole.push(selector); continue; }
-      // A rule matching nothing (a class a script adds later) or any non component stays whole.
-      if (matched.length === 0 || matched.some(el => !targets.has(el))) whole.push(selector);
-      else reduced.push(selector);
+      try { matched = Array.from(doc.querySelectorAll(selector)); } catch { continue; }
       const spec = specificity(selector);
       for (const el of matched) {
         if (!targets.has(el)) continue;
@@ -372,38 +359,50 @@ export function resolveStylesheets(doc: Document, sheets: string[], targets: Set
     });
   }
 
-  // Residual: whole rules, reduced copies of moved rules, and everything else in order.
-  const imports: string[] = [];
-  const head: string[] = [];
-  const out: string[] = [];
-  const residualRule = (rule: StyleRule): string => {
-    const p = plan.get(rule);
-    if (!p) return rule.raw;
-    if (rule.nested) return rule.raw;
-    const parts: string[] = [];
-    if (p.whole.length) parts.push(ruleText(p.whole, rule.decls));
-    const kept = rule.decls.filter(d => !styleKey(d.prop, d.value));
-    if (p.reduced.length && kept.length) parts.push(ruleText(p.reduced, kept));
-    return parts.join('\n');
-  };
-  for (const node of nodes) {
-    if (node.kind === 'rule') { const t = residualRule(node); if (t) out.push(t); continue; }
-    if (node.name === 'import') {
-      head.push(node.raw);
-      const url = /url\(\s*['"]?([^'")\s]+)['"]?\s*\)|^['"]([^'"]+)['"]/i.exec(node.prelude);
-      if (url) imports.push((url[1] ?? url[2])!);
-      continue;
-    }
-    if (node.name === 'charset') continue;
-    if (node.name === 'media' && node.children && mediaDevice(node.prelude)) {
-      const inner = node.children.map(c => (c.kind === 'rule' ? residualRule(c) : c.raw)).filter(Boolean);
-      if (inner.length) out.push(`@media ${node.prelude} {\n${inner.join('\n')}\n}`);
-      continue;
-    }
-    out.push(node.raw);
-  }
+  const imports = nodes.flatMap(node => {
+    if (node.kind !== 'at' || node.name !== 'import') return [];
+    const url = /url\(\s*['"]?([^'")\s]+)['"]?\s*\)|^['"]([^'"]+)['"]/i.exec(node.prelude);
+    return url ? [(url[1] ?? url[2])!] : [];
+  });
 
-  return { styles, css: [...head, ...out].join('\n'), imports };
+  return { styles, imports };
+}
+
+export interface ElementRule { id: string; device: Device; styles: StyleProperties }
+
+/** The key the styles panel uses for a declaration in the exported `[data-c]` sheet (spec 0013). */
+function panelKey(prop: string, value: string): string {
+  if (prop.startsWith('--')) return prop;
+  return prop === 'background-image' && /gradient\(/i.test(value) ? 'backgroundGradient' : kebabToCamel(prop);
+}
+
+/**
+ * Reads the exported `style[data-apexium-elements]` sheet back, so hand edits survive an AI edit
+ * (spec 0013 AC-15). Only `[data-c="id"]` rules count, so its `body` rule is ignored.
+ */
+export function readElementRules(sheet: string): ElementRule[] {
+  const rules: ElementRule[] = [];
+  const read = (nodes: CssNode[], device: Device) => {
+    for (const node of nodes) {
+      if (node.kind !== 'rule') continue;
+      const id = /^\[data-c="([^"]+)"\](?:\[data-c="\1"\])?$/.exec(node.selector.trim())?.[1];
+      if (!id) continue;
+      const styles: Record<string, string | number> = {};
+      for (const d of node.decls) {
+        const key = panelKey(d.prop, d.value);
+        styles[key] = d.important ? `${d.value} !important` : typed(key, d.value);
+      }
+      rules.push({ id, device, styles: styles as StyleProperties });
+    }
+  };
+  for (const node of parseSheet(sheet)) {
+    if (node.kind === 'rule') read([node], 'desktop');
+    else if (node.name === 'media' && node.children) {
+      const device = mediaDevice(node.prelude);
+      if (device) read(node.children, device);
+    }
+  }
+  return rules;
 }
 
 function beats(c: Candidate, prev: Candidate): boolean {

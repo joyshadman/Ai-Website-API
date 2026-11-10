@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="apexium-direction" content="minimal">
+<title>Mara Lind – UX Consultant</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+--color-bg:#fafafa;
+--color-surface:#ffffff;
+--color-text:#18181b;
+--color-muted:#52525b;
+--color-primary:#18181b;
+--color-on-primary:#ffffff;
+--font-heading:'Inter',sans-serif;
+--font-body:'Inter',sans-serif;
+--radius:8px;
+--space:24px
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:var(--font-body);color:var(--color-text);background:var(--color-bg);line-height:1.6}
+h1,h2,h3{margin:0 0 calc(var(--space)/2)}
+a{color:var(--color-primary);text-decoration:none}
+.site-header{max-width:1200px;margin:0 auto;display:flex;align-items:center;padding:var(--space);border-bottom:1px solid var(--color-surface)}
+.brand{display:flex;align-items:center;text-decoration:none;color:var(--color-text);font-family:var(--font-heading);font-weight:600;font-size:1.25rem}
+.brand svg{height:32px;width:32px;margin-right:calc(var(--space)/2);fill:var(--color-primary);stroke:var(--color-primary);stroke-width:1.5}
+.nav-toggle{display:none;background:none;border:none;cursor:pointer;color:var(--color-muted)}
+.site-nav{margin-left:auto}
+.site-nav ul{padding:0;list-style:none;display:flex;gap:var(--space);margin:0}
+.site-nav a{color:var(--color-muted);font-weight:500;transition:color .25s}
+.site-nav a:hover,.site-nav a:focus-visible{color:var(--color-text)}
+.hero{background:var(--color-surface);text-align:center;padding:calc(var(--space)*2) 0}
+.hero-content{max-width:800px;margin:0 auto}
+.btn-primary{display:inline-block;padding:.75rem 1.5rem;background:var(--color-primary);color:var(--color-on-primary);border-radius:var(--radius);font-weight:600;transition:background .25s,transform .25s,box-shadow .25s}
+.btn-primary:hover,.btn-primary:focus-visible{background:var(--color-muted);color:var(--color-bg);transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,.1)}
+.section{max-width:1200px;margin:0 auto;padding:calc(var(--space)*2) var(--space)}
+.cards-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:var(--space);margin-top:var(--space)}
+.card{background:var(--color-surface);border-radius:var(--radius);overflow:hidden;display:flex;flex-direction:column;transition:transform .25s,box-shadow .25s}
+.card img{width:100%;height:auto;display:block;object-fit:cover;aspect-ratio:16/9}
+.card h3{padding:calc(var(--space)/2);font-family:var(--font-heading);font-size:1.25rem}
+.card p{padding:0 calc(var(--space)/2) calc(var(--space)/2)}
+.project img{width:100%;height:auto;display:block;object-fit:cover;aspect-ratio:16/9}
+.projects-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:var(--space);margin-top:var(--space)}
+.project{background:var(--color-surface);border-radius:var(--radius);overflow:hidden;display:flex;flex-direction:column;transition:transform .25s,box-shadow .25s}
+.project-info{padding:var(--space);display:flex;flex-direction:column;justify-content:center}
+.site-footer{border-top:1px solid var(--color-surface);text-align:center;padding:var(--space);margin-top:calc(var(--space)*2);display:flex;align-items:center;justify-content:center;gap:.5rem}
+@media(max-width:1024px){
+.site-nav{display:none;position:absolute;top:64px;right:0;background:var(--color-surface);width:100%;box-shadow:0 4px 12px rgba(0,0,0,.1)}
+.site-nav ul{flex-direction:column;padding:var(--space)}
+.site-nav.is-open{display:block}
+.nav-toggle{display:block}
+}
+@media(max-width:640px){
+.hero-content{padding:0 var(--space)}
+.btn-primary{width:100%;text-align:center}
+.cards-grid, .projects-grid{grid-template-columns:1fr}
+.section{padding:calc(var(--space)*2) var(--space)}
+}
+@media(prefers-reduced-motion:reduce){
+*,*::before,*::after{transition:none!important;animation:none!important}
+}
+</style>
+<style data-apexium-anim>:where(a,span):where([data-apx-anim],[data-apx-hover]){display:inline-block}
+html.apx-ready [data-apx-anim]:not(.apx-in){opacity:0}
+@keyframes apx-fade{from{opacity:0}}
+@keyframes apx-slide-up{from{opacity:0;transform:translateY(24px)}}
+@keyframes apx-slide-down{from{opacity:0;transform:translateY(-24px)}}
+@keyframes apx-slide-left{from{opacity:0;transform:translateX(24px)}}
+@keyframes apx-slide-right{from{opacity:0;transform:translateX(-24px)}}
+@keyframes apx-zoom-in{from{opacity:0;transform:scale(0.92)}}
+[data-apx-anim]{--apx-dur:.7s;--apx-delay:0s}
+[data-apx-speed="fast"]{--apx-dur:.4s}
+[data-apx-speed="slow"]{--apx-dur:1s}
+[data-apx-delay="0.1"]{--apx-delay:0.1s}
+[data-apx-delay="0.2"]{--apx-delay:0.2s}
+[data-apx-delay="0.3"]{--apx-delay:0.3s}
+[data-apx-delay="0.4"]{--apx-delay:0.4s}
+[data-apx-delay="0.5"]{--apx-delay:0.5s}
+[data-apx-delay="0.6"]{--apx-delay:0.6s}
+[data-apx-delay="0.7"]{--apx-delay:0.7s}
+[data-apx-delay="0.8"]{--apx-delay:0.8s}
+[data-apx-delay="0.9"]{--apx-delay:0.9s}
+[data-apx-delay="1"]{--apx-delay:1s}
+[data-apx-delay="1.1"]{--apx-delay:1.1s}
+[data-apx-delay="1.2"]{--apx-delay:1.2s}
+[data-apx-delay="1.3"]{--apx-delay:1.3s}
+[data-apx-delay="1.4"]{--apx-delay:1.4s}
+[data-apx-delay="1.5"]{--apx-delay:1.5s}
+[data-apx-delay="1.6"]{--apx-delay:1.6s}
+[data-apx-delay="1.7"]{--apx-delay:1.7s}
+[data-apx-delay="1.8"]{--apx-delay:1.8s}
+[data-apx-delay="1.9"]{--apx-delay:1.9s}
+[data-apx-delay="2"]{--apx-delay:2s}
+[data-apx-anim="fade"].apx-in{animation:apx-fade var(--apx-dur) cubic-bezier(.22,1,.36,1) var(--apx-delay) backwards}
+[data-apx-anim="slide-up"].apx-in{animation:apx-slide-up var(--apx-dur) cubic-bezier(.22,1,.36,1) var(--apx-delay) backwards}
+[data-apx-anim="slide-down"].apx-in{animation:apx-slide-down var(--apx-dur) cubic-bezier(.22,1,.36,1) var(--apx-delay) backwards}
+[data-apx-anim="slide-left"].apx-in{animation:apx-slide-left var(--apx-dur) cubic-bezier(.22,1,.36,1) var(--apx-delay) backwards}
+[data-apx-anim="slide-right"].apx-in{animation:apx-slide-right var(--apx-dur) cubic-bezier(.22,1,.36,1) var(--apx-delay) backwards}
+[data-apx-anim="zoom-in"].apx-in{animation:apx-zoom-in var(--apx-dur) cubic-bezier(.22,1,.36,1) var(--apx-delay) backwards}
+[data-apx-hover]{transition:transform .25s ease,box-shadow .25s ease,opacity .25s ease}
+[data-apx-hover="lift"]:hover{transform:translateY(-4px);box-shadow:0 12px 24px rgba(0,0,0,.18)}
+[data-apx-hover="grow"]:hover{transform:scale(1.05)}
+[data-apx-hover="glow"]:hover{box-shadow:0 0 0 3px rgba(124,58,237,.35),0 0 24px rgba(124,58,237,.25);box-shadow:0 0 0 3px color-mix(in srgb,currentColor 35%,transparent),0 0 24px color-mix(in srgb,currentColor 25%,transparent)}
+[data-apx-hover="dim"]:hover{opacity:0.8}
+@media (prefers-reduced-motion: reduce){[data-apx-anim].apx-in{animation-name:apx-fade;animation-duration:.3s}[data-apx-hover="lift"]:hover,[data-apx-hover="grow"]:hover{transform:none}}</style><script data-apexium-anim>document.documentElement.classList.add("apx-ready");window.__apxReveal=setTimeout(function(){var a=document.querySelectorAll("[data-apx-anim]");for(var i=0;i<a.length;i++)a[i].classList.add("apx-in")},2500);</script></head>
+<body>
+<header class="site-header">
+  <a class="brand" href="#">
+    <span data-apexium-logo="ai" style="display:inline-flex;align-items:center;max-width:168px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false" height="28"><path d="M5 20 L12 5 L19 20 Z" fill="var(--color-primary)" stroke="var(--color-primary)" stroke-width="1.5"></path></svg></span>
+    <span>Mara Lind</span>
+  </a>
+  <button class="nav-toggle" aria-label="Toggle navigation">☰</button>
+  <nav class="site-nav">
+    <ul>
+      <li><a href="#services">Services</a></li>
+      <li><a href="#work">Past Work</a></li>
+      <li><a href="#contact">Contact</a></li>
+    </ul>
+  </nav>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="hero-content" data-apx-anim="fade" data-apx-speed="slow">
+      <h1>Transforming ideas into intuitive user experiences</h1>
+      <p>UX consultant specializing in research, design systems, and product strategy.</p>
+      <a href="#contact" class="btn-primary">Get in Touch</a>
+    </div>
+  </section>
+
+  <section id="services" class="section">
+    <h2 data-apx-anim="fade" data-apx-speed="slow">Services</h2>
+    <div class="cards-grid">
+      <article class="card">
+        <img src="https://placehold.co/600x400" alt="UX Research">
+        <h3>UX Research</h3>
+        <p>Deep dive interviews, usability testing, and data-driven insights.</p>
+      </article>
+      <article class="card">
+        <img src="https://placehold.co/600x400" alt="Design Systems">
+        <h3>Design Systems</h3>
+        <p>Consistent components and guidelines for scalable products.</p>
+      </article>
+      <article class="card">
+        <img src="https://placehold.co/600x400" alt="Product Strategy">
+        <h3>Product Strategy</h3>
+        <p>Roadmapping and prioritization to deliver impactful solutions.</p>
+      </article>
+    </div>
+  </section>
+
+  <section id="work" class="section">
+    <h2 data-apx-anim="fade" data-apx-speed="slow">Past Work</h2>
+    <div class="projects-grid">
+      <article class="project">
+        <img src="https://placehold.co/600x400" alt="Project 1">
+        <div class="project-info">
+          <h3>Fintech App Redesign</h3>
+          <p>Full UX audit, wireframes, and prototype that increased user retention by 23%.</p>
+        </div>
+      </article>
+      <article class="project">
+        <img src="https://placehold.co/600x400" alt="Project 2">
+        <div class="project-info">
+          <h3>E‑learning Platform</h3>
+          <p>Usability testing and UI/UX revamp for a corporate training site.</p>
+        </div>
+      </article>
+      <article class="project">
+        <img src="https://placehold.co/600x400" alt="Project 3">
+        <div class="project-info">
+          <h3>Health & Wellness App</h3>
+          <p>Designed onboarding flow that improved engagement metrics.</p>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section id="contact" class="section">
+    <h2 data-apx-anim="fade" data-apx-speed="slow">Contact</h2>
+    <p>Let's discuss how I can help your product succeed.</p>
+    <a href="mailto:hello@maralind.com" class="btn-primary">Email Me</a>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <span data-apexium-logo="ai" style="display:inline-flex;align-items:center;max-width:168px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false" height="28"><path d="M5 20 L12 5 L19 20 Z" fill="var(--color-primary)" stroke="var(--color-primary)" stroke-width="1.5"></path></svg></span>
+  <span>© 2024 Mara Lind</span>
+</footer>
+
+<script>
+document.addEventListener('DOMContentLoaded',function(){const t=document.querySelector('.nav-toggle'),n=document.querySelector('.site-nav');t&&n&&t.addEventListener('click',function(){n.classList.toggle('is-open')})});
+</script>
+<script data-apexium-anim>(function(){clearTimeout(window.__apxReveal);var a=document.querySelectorAll("[data-apx-anim]"),i;
+if(!("IntersectionObserver" in window)){for(i=0;i<a.length;i++)a[i].classList.add("apx-in");return}
+var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting&&(e.intersectionRatio>=0.15||e.intersectionRect.height>=window.innerHeight*0.15)){e.target.classList.add("apx-in");io.unobserve(e.target)}})},{threshold:[0,0.05,0.1,0.15]});
+for(i=0;i<a.length;i++)io.observe(a[i])})();</script></body>
+</html>

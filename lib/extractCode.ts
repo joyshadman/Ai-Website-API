@@ -25,8 +25,8 @@ export function extractHtmlCode(content: string | null | undefined): string | nu
     candidate = candidate.trim();
     if (!candidate) return null;
 
-    // Require a real document so partial or empty model output is never saved.
-    if (!/<!doctype\s+html|<html[\s>]/i.test(candidate)) return null;
+    // Require a whole document so partial or empty model output is never saved.
+    if (!/<!doctype\s+html|<html[\s>]/i.test(candidate) || !/<\/html\s*>/i.test(candidate)) return null;
 
     return candidate;
 }

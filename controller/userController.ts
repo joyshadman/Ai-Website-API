@@ -7,37 +7,27 @@ import {
     releaseJob,
     reserveJob,
     runGenerationJob,
+    CREATE_MAX_TOKENS,
     writeStartMessages,
     type GenerationJob,
 } from '../lib/generationJobs.js';
 import { PLAIN_CSS_RULES } from '../lib/plainCssPrompt.js';
 import { DESIGN_RULES } from '../lib/designPrompt.js';
+import { DAILY_LIMIT_MESSAGE, isAtDailyLimit } from '../lib/aiCapacity.js';
+import { CHARGE_REFUSALS, chargeRefusal, msUntilNextRefill, refillCredits, REFILL_TO } from '../lib/credits.js';
 
 // Single AI request per action: the prompt itself tells the model to expand a
 // brief request into a full site, so there is no separate enhance round trip.
 export function buildCreateMessages(initial_prompt: string): OpenAI.Chat.ChatCompletionMessageParam[] {
     return [{
                 role: 'system',
-                content: `You are an expert web developer. Create a complete, production-ready, single-page website based on this request: "${initial_prompt}"
+                content: `You are an expert web developer. Create a complete, production-ready, single-page website for the user's request. If it is brief or vague, silently decide concrete sections and content.
 
-    CRITICAL REQUIREMENTS:
-    - If the request is brief or vague, silently expand it into a detailed specification as you generate: decide concrete sections, layout, color palette, and typography. Never return the specification text itself — only the final HTML.
-    - You MUST output valid HTML ONLY: one complete document from <!DOCTYPE html> to </html>.
-    - Fully responsive, with great UX.
-    - Include all necessary meta tags.
-    - Use placeholder images from https://placehold.co/600x400
+Output ONLY one complete, fully responsive HTML document from <!DOCTYPE html> to </html>, with no explanations, comments, markdown, or code fences. Placeholder images: https://placehold.co/600x400
 
-    ${PLAIN_CSS_RULES}
+${PLAIN_CSS_RULES}
 
-    ${DESIGN_RULES}
-
-    CRITICAL HARD RULES:
-    1. You MUST put ALL output ONLY into message.content.
-    2. You MUST NOT place anything in "reasoning", "analysis", "reasoning_details", or any hidden fields.
-    3. You MUST NOT include internal thoughts, explanations, analysis, comments, or markdown.
-    4. Do NOT include markdown, explanations, notes, or code fences.
-
-    The HTML should be complete and ready to render as-is, with no external CSS framework.`,
+${DESIGN_RULES}`,
             }, {
                 role: 'user',
                 content: initial_prompt,
@@ -50,11 +40,12 @@ export const getUserCredit = async (req: Request, res: Response) => {
         if (!userid) {
             return res.status(401).json({ error: 'Unauthorized' });
         }
+        await refillCredits(userid);
         const user = await prisma.user.findUnique({
             where: { id: userid },
             select: { credits: true },
         });
-        res.json({ credits: user?.credits ?? 0 });
+        res.json({ credits: user?.credits ?? 0, refillTo: REFILL_TO, refillInMs: msUntilNextRefill() });
     } catch (error: any) {
         console.error('Get credit error:', error);
         res.status(500).json({ message: error.code || error.message });
@@ -76,12 +67,21 @@ export const createUserProject = async (req: Request, res: Response) => {
             return res.status(400).json({ error: 'Please provide a prompt.' });
         }
 
+        if (isAtDailyLimit()) {
+            return res.status(503).json({ error: DAILY_LIMIT_MESSAGE });
+        }
+
+        await refillCredits(userid);
+
         const user = await prisma.user.findUnique({
             where: { id: userid },
+            select: { credits: true, generationStartsToday: true },
         });
 
-        if (!user || user.credits < 5) {
-            return res.status(403).json({ error: 'Insufficient credit' });
+        const refusal = chargeRefusal(user);
+        if (refusal) {
+            const { status, error } = CHARGE_REFUSALS[refusal];
+            return res.status(status).json({ error });
         }
 
         const project = await prisma.websiteProject.create({
@@ -104,10 +104,12 @@ export const createUserProject = async (req: Request, res: Response) => {
         job = reserved;
         job.plainCss = true;
 
-        if (!(await deductCredits(job))) {
+        const charge = await deductCredits(job);
+        if (charge !== 'charged') {
             releaseJob(job);
             await prisma.websiteProject.delete({ where: { id: project.id } });
-            return res.status(403).json({ error: 'Insufficient credit' });
+            const { status, error } = CHARGE_REFUSALS[charge];
+            return res.status(status).json({ error });
         }
 
         await prisma.user.update({
@@ -120,7 +122,7 @@ export const createUserProject = async (req: Request, res: Response) => {
 
         res.json({ projectId: project.id });
 
-        void runGenerationJob(job, async () => buildCreateMessages(prompt));
+        void runGenerationJob(job, async () => ({ messages: buildCreateMessages(prompt), maxTokens: CREATE_MAX_TOKENS }));
     } catch (error: any) {
         if (job) await finalize(job, 'failed');
 

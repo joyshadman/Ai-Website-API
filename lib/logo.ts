@@ -1,4 +1,5 @@
 import { JSDOM } from 'jsdom';
+import { parseGeneratedHtml } from './parseHtml.js';
 import { cleanClassName } from './siteStyles.js';
 
 /**
@@ -241,7 +242,7 @@ export function logoFromDocument(doc: Document, fallback: LogoSource = 'ai'): Si
 export function logoFromHtml(html: string, fallback: LogoSource = 'ai'): SiteLogo | null {
   if (!html.includes(LOGO_ATTR)) return null;
   try {
-    return logoFromDocument(new JSDOM(html, { contentType: 'text/html' }).window.document, fallback);
+    return logoFromDocument(parseGeneratedHtml(html, { contentType: 'text/html' }).window.document, fallback);
   } catch {
     return null;
   }
@@ -359,7 +360,7 @@ function applyEdits(html: string, edits: Edit[]): string {
  * no credits. A document with no header and no marker is returned unchanged.
  */
 export function withCreateLogo(html: string): CreateLogoResult {
-  const dom = new JSDOM(html, { contentType: 'text/html', includeNodeLocations: true });
+  const dom = parseGeneratedHtml(html, { contentType: 'text/html', includeNodeLocations: true });
   const doc = dom.window.document;
   const serializer = new dom.window.XMLSerializer();
   const markers = topMarkers(doc);

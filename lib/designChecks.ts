@@ -50,14 +50,14 @@ export function directionFromHtml(html: string): Direction | null {
 }
 
 /** The site's stylesheet text: head <style> blocks except the preset sheet and the editor's element rules. */
-function siteCss(html: string): string[] {
+export function siteCss(html: string): string[] {
   return [...html.matchAll(/<style\b([^>]*)>([\s\S]*?)<\/style\s*>/gi)]
     .filter(m => !/data-apexium-(anim|elements)\b/i.test(m[1] ?? ''))
     .map(m => m[2] ?? '');
 }
 
 /** Custom properties from top level `:root` rules only (not inside @media); the last definition wins. */
-function rootTokens(css: string): Map<string, string> {
+export function rootTokens(css: string): Map<string, string> {
   const tokens = new Map<string, string>();
   const text = css.replace(/\/\*[\s\S]*?\*\//g, '');
   let depth = 0;
@@ -122,7 +122,13 @@ export function contrastRatio(a: [number, number, number], b: [number, number, n
 }
 
 /** Presets here are dropped by the editor importer or break inline layout (spec 0007, updated). */
-const FORBIDDEN_TARGETS = new Set(['header', 'nav', 'footer', 'a', 'span', 'em', 'ul', 'li', 'figure', 'dt', 'dd']);
+export const FORBIDDEN_TARGETS = new Set(['header', 'nav', 'footer', 'a', 'span', 'em', 'ul', 'li', 'figure', 'dt', 'dd']);
+/** Check id, foreground token, background token, and the lowest allowed contrast ratio. */
+export const CONTRAST_PAIRS: [string, string, string, number][] = [
+  ['contrast-text', '--color-text', '--color-bg', 4.5],
+  ['contrast-primary', '--color-on-primary', '--color-primary', 4.5],
+  ['contrast-muted', '--color-muted', '--color-bg', 3],
+];
 /** The checks that still run on an edit of a site made before spec 0007 (no direction meta). */
 const LEGACY_CHECKS = new Set(['motion-too-many', 'motion-invalid', 'motion-forbidden-target', 'reveal-script', 'reduced-motion', 'css-long']);
 
@@ -143,13 +149,8 @@ export function checkDesign(html: string, options: { kind: 'create' | 'edit'; le
   if (!hasFontLink || !tokens.has('--font-heading') || !tokens.has('--font-body')) fail('fonts');
 
   // Contrast from the token colors
-  const pairs: [string, string, string, number][] = [
-    ['contrast-text', '--color-text', '--color-bg', 4.5],
-    ['contrast-primary', '--color-on-primary', '--color-primary', 4.5],
-    ['contrast-muted', '--color-muted', '--color-bg', 3],
-  ];
   const unreadable = new Set<string>();
-  for (const [id, fg, bg, min] of pairs) {
+  for (const [id, fg, bg, min] of CONTRAST_PAIRS) {
     if (!tokens.has(fg) || !tokens.has(bg)) continue;
     const a = parseColor(tokens.get(fg));
     const b = parseColor(tokens.get(bg));

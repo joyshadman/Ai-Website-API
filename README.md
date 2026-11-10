@@ -7,7 +7,7 @@ Express + TypeScript API for the AI-powered website builder. Handles authenticat
 - **Express 5** with TypeScript
 - **Prisma 7** ORM with PostgreSQL (Neon via `@prisma/adapter-pg`)
 - **Better Auth** — authentication (email OTP + Google OAuth)
-- **OpenAI SDK** (OpenRouter) — AI code generation (`gpt-oss-120b`)
+- **OpenAI SDK** (OpenRouter) — AI code generation (free models, see `config/aiModels.ts`)
 - **JSDOM** — HTML-to-component schema parsing
 - **Nodemailer** — transactional emails (OTP via Gmail SMTP)
 - **dotenv** — environment configuration
@@ -43,6 +43,8 @@ SMTP_PASS=your-gmail-app-password
 # AI / OpenRouter
 AI_API_KEY=sk-or-v1-your-key
 OPENAI_API_KEY=sk-or-v1-your-key
+# Optional comma separated list; only ids ending in :free are used
+AI_MODELS=
 
 # CORS / URLs
 FRONTEND_URL=https://your-frontend.com
@@ -222,8 +224,9 @@ PostgreSQL schema managed via Prisma:
 
 Uses the OpenAI SDK pointed at **OpenRouter** (`https://openrouter.ai/api/v1`).
 
-- Model: `gpt-oss-120b`
-- **Exactly one** AI request per user action — prompt expansion is folded into the single generation call (no separate enhancement request)
+- Models: free models only, from `AI_MODELS` or the default list in `config/aiModels.ts`. Each generation tries up to 3 in turn.
+- `/api/ai-test` is available outside production only, because each POST spends a shared free request
+- Prompt expansion is folded into the generation call (no separate enhancement request)
 - Each AI revision/edit costs **5 credits**
 - Credits are **auto-refunded** if the AI call fails
 - URLs in user prompts are **scraped** and injected as design references

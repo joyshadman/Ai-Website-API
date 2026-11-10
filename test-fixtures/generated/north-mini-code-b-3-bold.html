@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="apexium-direction" content="bold">
+<title>Rally - Plan Projects for Small Teams</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --color-bg: #0a0a0a;
+  --color-surface: #171717;
+  --color-text: #fafafa;
+  --color-muted: #a3a3a3;
+  --color-primary: #d9f99d;
+  --color-on-primary: #ffffff;
+  --font-heading: 'Space Grotesk', sans-serif;
+  --font-body: 'Inter', sans-serif;
+  --radius: 16px;
+  --space: 20px;
+  color-scheme: dark;
+}
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  background: var(--color-bg);
+  color: var(--color-text);
+  line-height: 1.6;
+  font-size: 1rem;
+}
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+  color: var(--color-text);
+  margin: 0 0 var(--space);
+  line-height: 1.2;
+}
+h1 {
+  font-size: clamp(2rem, 4vw, 4.5rem);
+}
+h2 {
+  font-size: clamp(1.5rem, 3vw, 2.75rem);
+}
+p {
+  margin: 0 0 var(--space);
+}
+a {
+  color: var(--color-primary);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+a:hover,
+a:focus-visible {
+  color: var(--color-muted);
+}
+.btn-primary {
+  display: inline-block;
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  border: none;
+  border-radius: var(--radius);
+  padding: calc(var(--space)/2) var(--space);
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+.btn-primary:hover,
+.btn-primary:focus-visible {
+  background: var(--color-muted);
+  color: var(--color-bg);
+  transform: translateY(-2px);
+}
+.site-header {
+  padding: var(--space) 0;
+}
+.site-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--space)/2);
+  font-size: 1.25rem;
+  color: var(--color-text);
+  text-decoration: none;
+}
+.brand svg {
+  width: 24px;
+  height: 24px;
+  display: block;
+}
+.site-nav-list {
+  display: flex;
+  gap: var(--space);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.site-nav-link {
+  color: var(--color-text);
+  text-decoration: none;
+  font-weight: 600;
+  transition: color 0.2s ease;
+}
+.site-nav-link:hover,
+.site-nav-link:focus-visible {
+  color: var(--color-primary);
+}
+.site-nav-toggle {
+  display: none;
+  background: none;
+  border: none;
+  color: var(--color-text);
+  font-size: 1.5rem;
+  cursor: pointer;
+}
+.hero {
+  text-align: center;
+  padding: calc(var(--space)*6) calc(var(--space)*2);
+}
+.hero > div {
+  max-width: 800px;
+  margin: 0 auto;
+}
+.hero h1 {
+  margin-bottom: calc(var(--space)*1.5);
+}
+.hero p {
+  font-size: 1.125rem;
+  color: var(--color-muted);
+  margin-bottom: calc(var(--space)*2);
+}
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space);
+  margin-top: var(--space);
+}
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-muted);
+  border-radius: var(--radius);
+  padding: var(--space);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+.card:hover,
+.card:focus-within {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+}
+.card h3 {
+  margin-top: 0;
+  color: var(--color-primary);
+}
+.hero, .features, .pricing, .signup {
+  max-width: 1200px;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: var(--space);
+  padding-right: var(--space);
+}
+section {
+  padding: calc(var(--space)*4) 0;
+}
+.signup-form {
+  display: flex;
+  gap: var(--space);
+  max-width: 500px;
+  margin: var(--space) auto;
+}
+.signup-form input {
+  flex: 1;
+  padding: calc(var(--space)/2);
+  border-radius: var(--radius);
+  border: 1px solid var(--color-muted);
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+.signup-form input:focus {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+.site-footer {
+  border-top: 1px solid var(--color-muted);
+  padding: var(--space) 0;
+  text-align: center;
+  margin-top: calc(var(--space)*4);
+}
+.site-footer .brand {
+  margin-bottom: calc(var(--space)/2);
+}
+.site-footer p {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-muted);
+}
+@media (max-width: 1024px) {
+  .hero {
+    padding: calc(var(--space)*4) calc(var(--space)*2);
+  }
+  .card-grid {
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  .site-nav-toggle {
+    display: block;
+  }
+  .site-nav-list {
+    display: none;
+    position: absolute;
+    top: 100%;
+    right: 0;
+    background: var(--color-surface);
+    flex-direction: column;
+    border-radius: var(--radius);
+    padding: var(--space);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    z-index: 10;
+  }
+  .site-nav.is-open .site-nav-list {
+    display: flex;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+:root{--color-bg:#0a0a0a;--color-surface:#171717;--color-text:#fafafa;--color-muted:#a3a3a3;--color-primary:#d9f99d;--color-on-primary:#111111}
+</style>
+<style data-apexium-anim>:where(a,span):where([data-apx-anim],[data-apx-hover]){display:inline-block}
+html.apx-ready [data-apx-anim]:not(.apx-in){opacity:0}
+@keyframes apx-fade{from{opacity:0}}
+@keyframes apx-slide-up{from{opacity:0;transform:translateY(24px)}}
+@keyframes apx-slide-down{from{opacity:0;transform:translateY(-24px)}}
+@keyframes apx-slide-left{from{opacity:0;transform:translateX(24px)}}
+@keyframes apx-slide-right{from{opacity:0;transform:translateX(-24px)}}
+@keyframes apx-zoom-in{from{opacity:0;transform:scale(0.92)}}
+[data-apx-anim]{--apx-dur:.7s;--apx-delay:0s}
+[data-apx-speed="fast"]{--apx-dur:.4s}
+[data-apx-speed="slow"]{--apx-dur:1s}
+[data-apx-delay="0.1"]{--apx-delay:0.1s}
+[data-apx-delay="0.2"]{--apx-delay:0.2s}
+[data-apx-delay="0.3"]{--apx-delay:0.3s}
+[data-apx-delay="0.4"]{--apx-delay:0.4s}
+[data-apx-delay="0.5"]{--apx-delay:0.5s}
+[data-apx-delay="0.6"]{--apx-delay:0.6s}
+[data-apx-delay="0.7"]{--apx-delay:0.7s}
+[data-apx-delay="0.8"]{--apx-delay:0.8s}
+[data-apx-delay="0.9"]{--apx-delay:0.9s}
+[data-apx-delay="1"]{--apx-delay:1s}
+[data-apx-delay="1.1"]{--apx-delay:1.1s}
+[data-apx-delay="1.2"]{--apx-delay:1.2s}
+[data-apx-delay="1.3"]{--apx-delay:1.3s}
+[data-apx-delay="1.4"]{--apx-delay:1.4s}
+[data-apx-delay="1.5"]{--apx-delay:1.5s}
+[data-apx-delay="1.6"]{--apx-delay:1.6s}
+[data-apx-delay="1.7"]{--apx-delay:1.7s}
+[data-apx-delay="1.8"]{--apx-delay:1.8s}
+[data-apx-delay="1.9"]{--apx-delay:1.9s}
+[data-apx-delay="2"]{--apx-delay:2s}
+[data-apx-anim="fade"].apx-in{animation:apx-fade var(--apx-dur) cubic-bezier(.22,1,.36,1) var(--apx-delay) backwards}
+[data-apx-anim="slide-up"].apx-in{animation:apx-slide-up var(--apx-dur) cubic-bezier(.22,1,.36,1) var(--apx-delay) backwards}
+[data-apx-anim="slide-down"].apx-in{animation:apx-slide-down var(--apx-dur) cubic-bezier(.22,1,.36,1) var(--apx-delay) backwards}
+[data-apx-anim="slide-left"].apx-in{animation:apx-slide-left var(--apx-dur) cubic-bezier(.22,1,.36,1) var(--apx-delay) backwards}
+[data-apx-anim="slide-right"].apx-in{animation:apx-slide-right var(--apx-dur) cubic-bezier(.22,1,.36,1) var(--apx-delay) backwards}
+[data-apx-anim="zoom-in"].apx-in{animation:apx-zoom-in var(--apx-dur) cubic-bezier(.22,1,.36,1) var(--apx-delay) backwards}
+[data-apx-hover]{transition:transform .25s ease,box-shadow .25s ease,opacity .25s ease}
+[data-apx-hover="lift"]:hover{transform:translateY(-4px);box-shadow:0 12px 24px rgba(0,0,0,.18)}
+[data-apx-hover="grow"]:hover{transform:scale(1.05)}
+[data-apx-hover="glow"]:hover{box-shadow:0 0 0 3px rgba(124,58,237,.35),0 0 24px rgba(124,58,237,.25);box-shadow:0 0 0 3px color-mix(in srgb,currentColor 35%,transparent),0 0 24px color-mix(in srgb,currentColor 25%,transparent)}
+[data-apx-hover="dim"]:hover{opacity:0.8}
+@media (prefers-reduced-motion: reduce){[data-apx-anim].apx-in{animation-name:apx-fade;animation-duration:.3s}[data-apx-hover="lift"]:hover,[data-apx-hover="grow"]:hover{transform:none}}</style><script data-apexium-anim>document.documentElement.classList.add("apx-ready");window.__apxReveal=setTimeout(function(){var a=document.querySelectorAll("[data-apx-anim]");for(var i=0;i<a.length;i++)a[i].classList.add("apx-in")},2500);</script></head>
+<body>
+<header class="site-header">
+  <nav class="site-nav">
+    <a class="brand" href="#">
+      <span data-apexium-logo="ai" style="display:inline-flex;align-items:center;max-width:168px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false" height="28"><defs><linearGradient id="apx-logo-1-gradient-ai" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="var(--color-primary)"></stop><stop offset="100%" stop-color="var(--color-surface)"></stop></linearGradient></defs><g stroke="var(--color-primary)" stroke-width="2" fill="url(#apx-logo-1-gradient-ai)" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h4v12H4zM12 4h8v4h-8zM12 12h8v8h-8z"></path></g></svg></span>
+      <span>Rally</span>
+    </a>
+    <button class="site-nav-toggle" aria-label="Toggle navigation">☰</button>
+    <ul class="site-nav-list">
+      <li><a class="site-nav-link" href="#features">Features</a></li>
+      <li><a class="site-nav-link" href="#pricing">Pricing</a></li>
+      <li><a class="site-nav-link" href="#signup">Sign Up</a></li>
+    </ul>
+  </nav>
+</header>
+
+<main>
+  <section class="hero">
+    <div data-apx-anim="slide-up" data-apx-speed="fast">
+      <h1>Rally Your Team to Success</h1>
+      <p>Simple project planning for small teams. Visualize tasks, meet deadlines, and stay aligned without the chaos.</p>
+      <a href="#signup" class="btn-primary">Start for Free</a>
+    </div>
+  </section>
+
+  <section id="features" class="features">
+    <h2 data-apx-anim="fade" data-apx-speed="fast">Features</h2>
+    <div class="card-grid">
+      <article class="card" data-apx-anim="fade" data-apx-speed="fast" data-apx-delay="0.1">
+        <h3>Simple Planning</h3>
+        <p>Create projects, add tasks, and assign them in minutes. No complex setup required.</p>
+      </article>
+      <article class="card" data-apx-anim="fade" data-apx-speed="fast" data-apx-delay="0.2">
+        <h3>Real-Time Collaboration</h3>
+        <p>Team members see updates instantly, comment, and keep the momentum going.</p>
+      </article>
+      <article class="card" data-apx-anim="fade" data-apx-speed="fast" data-apx-delay="0.3">
+        <h3>Task Visualization</h3>
+        <p>Bullet lists, Kanban boards, and timeline views keep everyone on the same page.</p>
+      </article>
+      <article class="card" data-apx-anim="fade" data-apx-speed="fast" data-apx-delay="0.4">
+        <h3>Deadline Tracking</h3>
+        <p>Automatic reminders and alerts ensure you never miss a due date.</p>
+      </article>
+      <article class="card" data-apx-anim="fade" data-apx-speed="fast" data-apx-delay="0.5">
+        <h3>Integrations</h3>
+        <p>Connect with your favorite tools like Slack, Google Drive, and more.</p>
+      </article>
+    </div>
+  </section>
+
+  <section id="pricing" class="pricing">
+    <h2 data-apx-anim="fade" data-apx-speed="fast">Pricing</h2>
+    <div class="card-grid">
+      <article class="card">
+        <h3>Basic</h3>
+        <p>Free plan for up to 3 users. Core planning features included.</p>
+        <p class="price">$0/month</p>
+      </article>
+      <article class="card">
+        <h3>Pro</h3>
+        <p>$12/month per user. Advanced features and priority support.</p>
+        <p class="price">$12/month</p>
+      </article>
+      <article class="card">
+        <h3>Enterprise</h3>
+        <p>Custom solutions for large teams. Unlimited features and dedicated support.</p>
+        <p class="price">Contact Us</p>
+      </article>
+    </div>
+  </section>
+
+  <section id="signup" class="signup">
+    <h2 data-apx-anim="fade" data-apx-speed="fast">Get Started Today</h2>
+    <form class="signup-form" action="#" method="post">
+      <label for="email" class="visually-hidden">Email address</label>
+      <input type="email" id="email" name="email" required placeholder="you@example.com">
+      <button type="submit" class="btn-primary">Sign Up</button>
+    </form>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <a class="brand" href="#">
+    <span data-apexium-logo="ai" style="display:inline-flex;align-items:center;max-width:168px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false" height="28"><defs><linearGradient id="apx-logo-2-gradient-ai" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="var(--color-primary)"></stop><stop offset="100%" stop-color="var(--color-surface)"></stop></linearGradient></defs><g stroke="var(--color-primary)" stroke-width="2" fill="url(#apx-logo-2-gradient-ai)" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h4v12H4zM12 4h8v4h-8zM12 12h8v8h-8z"></path></g></svg></span>
+    Rally
+  </a>
+  <p>&copy; 2024 Rally. All rights reserved.</p>
+</footer>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const toggleBtn = document.querySelector('.site-nav-toggle');
+  const nav = document.querySelector('.site-nav');
+  if (toggleBtn && nav) {
+    toggleBtn.addEventListener('click', function() {
+      nav.classList.toggle('is-open');
+    });
+  }
+});
+</script>
+<script data-apexium-anim>(function(){clearTimeout(window.__apxReveal);var a=document.querySelectorAll("[data-apx-anim]"),i;
+if(!("IntersectionObserver" in window)){for(i=0;i<a.length;i++)a[i].classList.add("apx-in");return}
+var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting&&(e.intersectionRatio>=0.15||e.intersectionRect.height>=window.innerHeight*0.15)){e.target.classList.add("apx-in");io.unobserve(e.target)}})},{threshold:[0,0.05,0.1,0.15]});
+for(i=0;i<a.length;i++)io.observe(a[i])})();</script></body>
+</html>

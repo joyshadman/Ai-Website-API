@@ -47,7 +47,7 @@ export function getEnvStatus() {
     frontendUrl: PRODUCTION_FRONTEND,
     apiUrl: PRODUCTION_API,
     hasGoogleOAuth: Boolean(process.env.GOOGLE_CLIENT_ID?.trim() && process.env.GOOGLE_CLIENT_SECRET?.trim()),
-    hasOpenAiKey: Boolean(process.env.OPENAI_API_KEY?.trim()),
+    hasOpenAiKey: Boolean(process.env.AI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim()),
     hasSmtpUser: Boolean(process.env.SMTP_USER?.trim()),
     hasSmtpPass: Boolean(process.env.SMTP_PASS?.trim()),
     // Media storage (spec 0006): the Neon branch S3 credentials plus the bucket name.

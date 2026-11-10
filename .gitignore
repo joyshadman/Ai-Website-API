@@ -155,3 +155,9 @@ vite.config.ts.timestamp-*
 
 /generated/prisma
 .vercel
+
+# Secrets file saved without the leading dot
+/env
+
+# Sample site runs (spec 0012)
+sample-output/

@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="apexium-direction" content="editorial">
+  <title>Ines Marchetti | Travel Photographer</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Source+Sans+3:wght@400;600&display=swap">
+  <style>
+    :root{
+      --color-bg:#faf7f2;
+      --color-surface:#ffffff;
+      --color-text:#1f1b16;
+      --color-muted:#5c544a;
+      --color-primary:#7c2d12;
+      --color-on-primary:#ffffff;
+      --font-heading:"Playfair Display",serif;
+      --font-body:"Source Sans 3",sans-serif;
+      --radius:4px;
+      --space:24px;
+      --color-accent:#d6b37a;
+      --color-overlay:rgba(31,27,22,0.05)
+    }
+    *,::before,::after{box-sizing:border-box}
+    html,body{margin:0;padding:0;font-family:var(--font-body);color:var(--color-text);background-color:var(--color-bg)}
+    a{color:var(--color-primary);text-decoration:none;transition:color .2s ease,opacity .2s ease}
+    a:hover,a:focus-visible{color:var(--color-muted);opacity:.9}
+    .btn-primary{background:var(--color-primary);color:var(--color-on-primary);border:none;padding:calc(var(--space)/2) var(--space);border-radius:var(--radius);cursor:pointer;font-family:var(--font-body);font-weight:600;transition:background .2s ease,opacity .2s ease}
+    .btn-primary:hover,.btn-primary:focus-visible{opacity:.9;background:var(--color-muted);color:var(--color-on-primary)}
+    :focus-visible{outline:2px solid var(--color-primary);outline-offset:2px}
+    .site-header{display:flex;justify-content:space-between;align-items:center;padding:var(--space) calc(var(--space)*2);background:var(--color-surface);border-bottom:1px solid var(--color-muted);position:sticky;top:0;z-index:100}
+    .brand{display:flex;align-items:center;gap:.5rem;font-family:var(--font-heading);font-size:1.5rem;color:var(--color-primary);text-decoration:none}
+    .brand svg{width:32px;height:32px;display:block}
+    .site-nav{display:flex;align-items:center}
+    .site-nav ul{display:flex;gap:var(--space);list-style:none;margin:0;padding:0}
+    .site-nav a{font-weight:600}
+    .nav-toggle{display:none;background:none;border:none;font-size:1.5rem;cursor:pointer}
+    .site-nav.is-open ul{flex-direction:column;position:absolute;top:64px;left:0;width:100%;background:var(--color-surface);padding:var(--space);border-top:1px solid var(--color-muted)}
+    .hero{padding:calc(var(--space)*4) var(--space);text-align:center;background:var(--color-surface)}
+    .hero-content{max-width:1200px;margin:0 auto;display:flex;flex-direction:column;gap:var(--space)}
+    .hero-content h1{font-family:var(--font-heading);font-size:clamp(3rem,5vw,4. hinge);line-height:1.2;margin-bottom:var(--space);color:var(--color-primary)}
+    .hero-content p{margin-bottom:var(--space)}
+    .stories{max-width:1200px;margin:0 auto;padding:calc(var(--space)*2) var(--space)}
+    .stories h2{font-family:var(--font-heading);font-size:2rem;line-height:1.2;margin-bottom:var(--space);text-align:center}
+    .card-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:var(--space);margin-top:var(--space)}
+    .card{background:var(--color-surface);border-radius:var(--radius);overflow:hidden;display:flex;flex-direction:column;transition:transform .2s ease,box-shadow .2s ease}
+    .card:hover,.card:focus-within{transform:translateY(-4px);box-shadow:0 4px var(--color-overlay)}
+    .card img{width:100%;height:auto;display:block}
+    .card-body{padding:var(--space);display:flex;flex-direction:column;gap:calc(var(--space)/2)}
+    .card-body h3{font-family:var(--font-heading);font-size:1.5rem;margin:0;color:var(--color-primary)}
+    .card-body p{margin:0;color:var(--color-muted)}
+    .about{max-width:1200px;margin:0 auto;padding:calc(var(--space)*2) var(--space)}
+    .about h2{font-family:var(--font-heading);font-size:2rem;line-height:1.2;margin-bottom:var(--space);text-align:center}
+    .about-content{display:flex;flex-wrap:wrap;gap:var(--space);align-items:center;margin-top:var(--space)}
+    .about img{max-width:100%;height:auto;border-radius:var(--radius);object-fit:cover;flex:1 1 300px}
+    .about-text{flex:1 1 300px;display:flex;flex-direction:column;gap:var(--space)}
+    .about p{margin:0}
+    .contact{max-width:1200px;margin:0 auto;padding:calc(var(--space)*2) var(--space)}
+    .contact h2{font-family:var(--font-heading);font-size:2rem;line-height:1.2;margin-bottom:var(--space);text-align:center}
+    .contact-wrapper{display:flex;gap:var(--space);flex-wrap:wrap;justify-content:space-between}
+    .contact-form{flex:1 1 300px;display:flex;flex-direction:column;gap:var(--space)}
+    .form-group{display:flex;flex-direction:column}
+    .form-group label{font-weight:600;margin-bottom:calc(var(--space)/4)}
+    .form-group input,.form-group textarea{width:100%;padding:calc(var(--space)/2);border:1px solid var(--color-muted);border-radius:var(--radius);font-family:var(--font-body)}
+    .contact-info{flex:1 1 250px;padding:var(--space);background:var(--color-surface);border-radius:var(--radius)}
+    .contact-info p{margin:calc(var(--space)/2) 0}
+    .site-footer{background:var(--color-primary);color:var(--color-on-primary);display:flex;align-items:center;justify-content:center;gap:.5rem;padding:var(--space);text-align:center}
+    @media(max-width:1024px){
+      .hero-content h1{font-size:clamp(2.5rem,4vw,4rem)}
+      .about-content{flex-direction:column}
+    }
+    @media(max-width:640px){
+      .nav-toggle{display:block}
+      .site-nav{display:none}
+      .site-nav.is-open{display:block}
+      .site-nav ul{flex-direction:column;position:absolute;top:64px;left:0;width:100%;background:var(--color-surface);padding:var(--space);border-top:1px solid var(--color-muted)}
+      .card-grid{grid-template-columns:1fr}
+      .about-content{flex-direction:column}
+      .contact-wrapper{flex-direction:column}
+    }
+    @media(prefers-reduced-motion:reduce){
+      *{transition:none!important;animation:none!important}
+    }
+  </style>
+<style data-apexium-anim>:where(a,span):where([data-apx-anim],[data-apx-hover]){display:inline-block}
+html.apx-ready [data-apx-anim]:not(.apx-in){opacity:0}
+@keyframes apx-fade{from{opacity:0}}
+@keyframes apx-slide-up{from{opacity:0;transform:translateY(24px)}}
+@keyframes apx-slide-down{from{opacity:0;transform:translateY(-24px)}}
+@keyframes apx-slide-left{from{opacity:0;transform:translateX(24px)}}
+@keyframes apx-slide-right{from{opacity:0;transform:translateX(-24px)}}
+@keyframes apx-zoom-in{from{opacity:0;transform:scale(0.92)}}
+[data-apx-anim]{--apx-dur:.7s;--apx-delay:0s}
+[data-apx-speed="fast"]{--apx-dur:.4s}
+[data-apx-speed="slow"]{--apx-dur:1s}
+[data-apx-delay="0.1"]{--apx-delay:0.1s}
+[data-apx-delay="0.2"]{--apx-delay:0.2s}
+[data-apx-delay="0.3"]{--apx-delay:0.3s}
+[data-apx-delay="0.4"]{--apx-delay:0.4s}
+[data-apx-delay="0.5"]{--apx-delay:0.5s}
+[data-apx-delay="0.6"]{--apx-delay:0.6s}
+[data-apx-delay="0.7"]{--apx-delay:0.7s}
+[data-apx-delay="0.8"]{--apx-delay:0.8s}
+[data-apx-delay="0.9"]{--apx-delay:0.9s}
+[data-apx-delay="1"]{--apx-delay:1s}
+[data-apx-delay="1.1"]{--apx-delay:1.1s}
+[data-apx-delay="1.2"]{--apx-delay:1.2s}
+[data-apx-delay="1.3"]{--apx-delay:1.3s}
+[data-apx-delay="1.4"]{--apx-delay:1.4s}
+[data-apx-delay="1.5"]{--apx-delay:1.5s}
+[data-apx-delay="1.6"]{--apx-delay:1.6s}
+[data-apx-delay="1.7"]{--apx-delay:1.7s}
+[data-apx-delay="1.8"]{--apx-delay:1.8s}
+[data-apx-delay="1.9"]{--apx-delay:1.9s}
+[data-apx-delay="2"]{--apx-delay:2s}
+[data-apx-anim="fade"].apx-in{animation:apx-fade var(--apx-dur) cubic-bezier(.22,1,.36,1) var(--apx-delay) backwards}
+[data-apx-anim="slide-up"].apx-in{animation:apx-slide-up var(--apx-dur) cubic-bezier(.22,1,.36,1) var(--apx-delay) backwards}
+[data-apx-anim="slide-down"].apx-in{animation:apx-slide-down var(--apx-dur) cubic-bezier(.22,1,.36,1) var(--apx-delay) backwards}
+[data-apx-anim="slide-left"].apx-in{animation:apx-slide-left var(--apx-dur) cubic-bezier(.22,1,.36,1) var(--apx-delay) backwards}
+[data-apx-anim="slide-right"].apx-in{animation:apx-slide-right var(--apx-dur) cubic-bezier(.22,1,.36,1) var(--apx-delay) backwards}
+[data-apx-anim="zoom-in"].apx-in{animation:apx-zoom-in var(--apx-dur) cubic-bezier(.22,1,.36,1) var(--apx-delay) backwards}
+[data-apx-hover]{transition:transform .25s ease,box-shadow .25s ease,opacity .25s ease}
+[data-apx-hover="lift"]:hover{transform:translateY(-4px);box-shadow:0 12px 24px rgba(0,0,0,.18)}
+[data-apx-hover="grow"]:hover{transform:scale(1.05)}
+[data-apx-hover="glow"]:hover{box-shadow:0 0 0 3px rgba(124,58,237,.35),0 0 24px rgba(124,58,237,.25);box-shadow:0 0 0 3px color-mix(in srgb,currentColor 35%,transparent),0 0 24px color-mix(in srgb,currentColor 25%,transparent)}
+[data-apx-hover="dim"]:hover{opacity:0.8}
+@media (prefers-reduced-motion: reduce){[data-apx-anim].apx-in{animation-name:apx-fade;animation-duration:.3s}[data-apx-hover="lift"]:hover,[data-apx-hover="grow"]:hover{transform:none}}</style><script data-apexium-anim>document.documentElement.classList.add("apx-ready");window.__apxReveal=setTimeout(function(){var a=document.querySelectorAll("[data-apx-anim]");for(var i=0;i<a.length;i++)a[i].classList.add("apx-in")},2500);</script></head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="#hero">
+      <span data-apexium-logo="ai" style="display:inline-flex;align-items:center;max-width:168px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false" height="28"><defs><linearGradient id="apx-logo-1-logoGradient" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="var(--color-primary)"></stop><stop offset="100%" stop-color="var(--color-muted)"></stop></linearGradient></defs><g><path d="M12 2a5 5 0 0 0-5 5v2h10V7a5 5 0 0 0-5-5zm0 16a5 5 0 0 1-5-5v-4h10v4a5 5 0 0 1-5 5z" fill="url(#apx-logo-1-logoGradient)" stroke="var(--color-primary)" stroke-width="0.5"></path><rect x="9" y="10" width="6" height="3.5" fill="var(--color-on-primary)" stroke="var(--color-primary)" stroke-width="0.3"></rect></g></svg></span>
+      <span>Ines Marchetti</span>
+    </a>
+    <nav class="site-nav" aria-label="Primary">
+      <button class="nav-toggle" aria-expanded="false" aria-controls="site-nav">Menu</button>
+      <ul>
+        <li><a href="#hero">Home</a></li>
+        <li><a href="#stories">Stories</a></li>
+        <li><a href="#about">About</a></li>
+        <li><a href="#contact">Contact</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main>
+    <section id="hero" class="hero">
+      <div class="hero-content" data-apx-anim="fade" data-apx-speed="normal">
+        <h1>Capturing the World's Most Unforgettable Moments</h1>
+        <p>Travel photographer Ines Marchetti turns fleeting destinations into timeless memories.</p>
+        <a href="#contact" class="btn-primary">Book a Photoshoot</a>
+      </div>
+    </section>
+
+    <section id="stories" class="stories">
+      <h2 data-apx-anim="slide-up" data-apx-speed="slow">Selected Stories</h2>
+      <div class="card-grid">
+        <article class="card" data-apx-anim="fade" data-apx-speed="normal" data-apx-delay="0.1">
+          <img src="https://placehold.co/600x400" alt="Story 1">
+          <div class="card-body">
+            <h3>Sunset over Santorini</h3>
+            <p>Exploring the iconic white-washed cliffs as the sun paints the Aegean in golden hues.</p>
+          </div>
+        </article>
+        <article class="card" data-apx-anim="fade" data-apx-speed="normal" data-apx-delay="0.2">
+          <img src="https://placehold.co/600x400" alt="Story 2">
+          <div class="card-body">
+            <h3>Jungles of Borneo</h3>
+            <p>Walking through mist‑filled rainforests to capture elusive wildlife and ancient waterfalls.</p>
+          </div>
+        </article>
+        <article class="card" data-apx-anim="fade" data-apx-speed="normal" data-apx-delay="0.3">
+          <img src="https://placehold.co/600x400" alt="Story 3">
+          <div class="card-body">
+            <h3>Night Market in Bangkok</h3>
+            <p>Vibrant streets illuminated by lanterns, street food stalls, and the pulse of the city after dark.</p>
+          </div>
+        </article>
+        <article class="card">
+          <img src="https://placehold.co/600x400" alt="Story 4">
+          <div class="card-body">
+            <h3>Arctic Aurora</h3>
+            <p>Dancing lights over snow‑filled tundra, a rare spectacle captured in pure winter silence.</p>
+          </div>
+        </article>
+        <article class="card">
+          <img src="https://placehold.co/600x400" alt="Story 5">
+          <div class="card-body">
+            <h3>Desert Dunes of Morocco</h3>
+            <p>Endless golden dunes, shifting shadows, and the timeless horizon.</p>
+          </div>
+        </article>
+        <article class="card">
+          <img src="https://placehold.co/600x400" alt="Story 6">
+          <div class="card-body">
+            <h3>Rivers of Patagonia</h3>
+            <p>Reflective valleys and towering peaks reflected in crystal‑clear waters.</p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section id="about" class="about">
+      <h2 data-apx-anim="slide-up" data-apx-speed="slow">About Ines</h2>
+      <div class="about-content">
+        <img src="https://placehold.co/600x400" alt="Ines Marchetti">
+        <div class="about-text">
+          <p>Driven by a passion for wandering and a love for light, Ines Marchetti travels the globe seeking stories to tell through her lens. With over a decade of experience, she has photographed in more than 30 countries, turning fleeting moments into lasting memories.</p>
+          <p>Her work has been featured in National Geographic, Lonely Planet, and many other publications. When not shooting, she teaches photography workshops, sharing her technique and eye for detail.</p>
+          <a href="#contact" class="btn-primary">Get in Touch</a>
+        </div>
+      </div>
+    </section>
+
+    <section id="contact" class="contact">
+      <h2 data-apx-anim="slide-up" data-apx-speed="slow">Contact</h2>
+      <div class="contact-wrapper">
+        <form class="contact-form" action="#" method="post">
+          <div class="form-group">
+            <label for="name">Name</label>
+            <input type="text" id="name" name="name" required>
+          </div>
+          <div class="form-group">
+            <label for="email">Email</label>
+            <input type="email" id="email" name="email" required>
+          </div>
+          <div class="form-group">
+            <label for="message">Message</label>
+            <textarea id="message" name="message" rows="5" required></textarea>
+          </div>
+          <button type="submit" class="btn-primary">Send Message</button>
+        </form>
+        <div class="contact-info">
+          <p><strong>Email:</strong> ines@example.com</p>
+          <p><strong>Phone:</strong> +1 234 567 8900</p>
+          <p><strong>Based in:</strong> London, UK</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <span data-apexium-logo="ai" style="display:inline-flex;align-items:center;max-width:168px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false" height="28"><defs><linearGradient id="apx-logo-2-logoGradient" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="var(--color-primary)"></stop><stop offset="100%" stop-color="var(--color-muted)"></stop></linearGradient></defs><g><path d="M12 2a5 5 0 0 0-5 5v2h10V7a5 5 0 0 0-5-5zm0 16a5 5 0 0 1-5-5v-4h10v4a5 5 0 0 1-5 5z" fill="url(#apx-logo-2-logoGradient)" stroke="var(--color-primary)" stroke-width="0.5"></path><rect x="9" y="10" width="6" height="3.5" fill="var(--color-on-primary)" stroke="var(--color-primary)" stroke-width="0.3"></rect></g></svg></span>
+    <span>&copy; 2024 Ines Marchetti</span>
+  </footer>
+
+  <script>
+    const toggle = document.querySelector('.nav-toggle');
+    const nav = document.querySelector('.site-nav');
+    const ul = nav.querySelector('ul');
+    toggle.addEventListener('click', () => {
+      const expanded = toggle.getAttribute('aria-expanded') === 'true';
+      toggle.setAttribute('aria-expanded', String(!expanded));
+      nav.classList.toggle('is-open');
+    });
+    ul.querySelectorAll('a').forEach(link => {
+      link.addEventListener('click', () => {
+        if (nav.classList.contains('is-open')) {
+          nav.classList.remove('is-open');
+          toggle.setAttribute('aria-expanded', 'false');
+        }
+      });
+    });
+  </script>
+<script data-apexium-anim>(function(){clearTimeout(window.__apxReveal);var a=document.querySelectorAll("[data-apx-anim]"),i;
+if(!("IntersectionObserver" in window)){for(i=0;i<a.length;i++)a[i].classList.add("apx-in");return}
+var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting&&(e.intersectionRatio>=0.15||e.intersectionRect.height>=window.innerHeight*0.15)){e.target.classList.add("apx-in");io.unobserve(e.target)}})},{threshold:[0,0.05,0.1,0.15]});
+for(i=0;i<a.length;i++)io.observe(a[i])})();</script></body>
+</html>

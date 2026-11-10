@@ -1,7 +1,7 @@
 import { type Request, type Response } from 'express';
 import openai, { assertAiKeyConfigured } from '../config/openai.js';
+import { PRIMARY_AI_MODEL as AI_MODEL } from '../config/aiModels.js';
 
-const AI_MODEL = 'gpt-oss-120b';
 const AI_PROVIDER = 'OpenRouter';
 
 function sanitizeError(error: any): string {

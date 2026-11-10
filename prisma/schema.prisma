@@ -19,6 +19,9 @@ model User {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   emailVerified Boolean  @default(false)
+  creditsRefilledOn     DateTime @default(dbgenerated("(now() at time zone 'utc')::date")) @db.Date
+  generationStartsToday Int      @default(0)
+  normalizedEmail       String?  @unique
 
   projects     WebsiteProject[]
   sessions     Session[]

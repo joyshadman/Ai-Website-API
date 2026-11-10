@@ -1,7 +1,7 @@
 import { type Request, type Response } from "express";
 import prisma from '../lib/prisma.js';
 import { componentsToHtml, htmlToPageData, toPages } from '../lib/htmlToSchema.js';
-import { mergeSiteStyles } from '../lib/siteStyles.js';
+import { cleanPageNodes, mergeSiteStyles } from '../lib/siteStyles.js';
 import { deleteMediaKeys } from '../lib/media.js';
 
 export const getWebsite = async (req: Request, res: Response) => {
@@ -55,8 +55,11 @@ export const updateWebsite = async (req: Request, res: Response) => {
 
       // globalStyles merges by key and never loses `mode` or `css`, so an old
       // client posting `globalStyles: {}` changes nothing (spec 0003 AC-10).
+      if (existing.globalStyles?.importFailed && incomingPages !== undefined) {
+        return res.status(409).json({ error: 'not_editable' });
+      }
       const merged = {
-        pages: incomingPages !== undefined ? incomingPages : (existing.pages || []),
+        pages: incomingPages !== undefined ? (Array.isArray(incomingPages) ? cleanPageNodes(incomingPages) : incomingPages) : (existing.pages || []),
         globalStyles: mergeSiteStyles(existing.globalStyles, incomingGlobalStyles)
       };
       data.pageData = JSON.stringify(merged);
@@ -153,7 +156,15 @@ export const getEditorWebsite = async (req: Request, res: Response) => {
       ? pageData.pages
       : [{ id: 'page-1', name: 'Home', slug: '/', components: [] }];
 
-    res.json({ websiteId: project.id, name: project.name, pages, globalStyles: pageData.globalStyles || {} });
+    const globalStyles = pageData.globalStyles || {};
+    res.json({
+      websiteId: project.id,
+      name: project.name,
+      pages,
+      globalStyles,
+      // Only a site that could not be imported needs its HTML here, for the read only view (spec 0013 AC-12).
+      ...(globalStyles.importFailed ? { current_code: (project as any).current_code } : {}),
+    });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }

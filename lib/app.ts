@@ -2,7 +2,7 @@ import express from "express";
 import cors from "cors";
 import { toNodeHandler } from "better-auth/node";
 import { getTrustedOrigins, PRODUCTION_API, PRODUCTION_FRONTEND } from "./cors.js";
-import { getEnvStatus, getBetterAuthUrl } from "./env.js";
+import { getEnvStatus, getBetterAuthUrl, isProduction } from "./env.js";
 import userRoutes from "../routes/userRoutes.js";
 import projectRoutes from "../routes/ProjectRoutes.js";
 import editingRoutes from "../routes/editingRoutes.js";
@@ -52,7 +52,8 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
-app.get("/api/ai-test", aiTestGet);
+// Dev only (spec 0010): each POST spends a request from the shared free AI limit.
+if (!isProduction()) app.get("/api/ai-test", aiTestGet);
 
 app.all("/api/auth/*splat", async (req, res) => {
   try {
@@ -77,7 +78,7 @@ app.use("/api/project", projectRoutes);
 app.use("/api/editing", editingRoutes);
 app.use(websiteRoutes);
 
-app.post("/api/ai-test", aiTestPost);
+if (!isProduction()) app.post("/api/ai-test", aiTestPost);
 
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err);

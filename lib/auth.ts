@@ -1,10 +1,11 @@
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
+import { createAuthMiddleware } from "better-auth/api";
 import { emailOTP } from "better-auth/plugins";
 import nodemailer from "nodemailer";
-import prisma from "./prisma.js";
 import { getTrustedOrigins, PRODUCTION_FRONTEND } from "./cors.js";
-import { getBetterAuthSecret, isProduction } from "./env.js";
+import { getBetterAuthSecret, getBetterAuthUrl, isProduction } from "./env.js";
+import { authPrisma, checkBeforeCode, checkNewUser, countNewUser } from "./signupGuard.js";
 
 const googleClientId = process.env.GOOGLE_CLIENT_ID?.trim();
 const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim();
@@ -31,7 +32,7 @@ export function getAuth(): AuthInstance | null {
   if (authInstance) return authInstance;
 
   authInstance = betterAuth({
-    database: prismaAdapter(prisma, {
+    database: prismaAdapter(authPrisma, {
       provider: "postgresql",
     }),
 
@@ -98,7 +99,26 @@ export function getAuth(): AuthInstance | null {
     },
     user: {
       deleteUser: { enabled: true },
+      additionalFields: {
+        normalizedEmail: { type: "string", required: false, input: false, returned: false },
+      },
     },
+    databaseHooks: {
+      user: {
+        create: {
+          before: async (user, context) => ({ data: await checkNewUser(user, context) }),
+          after: async (_user, context) => countNewUser(context),
+        },
+      },
+    },
+    hooks: {
+      // A middleware, because that route sends the email in the background where a throw can't reach the client.
+      before: createAuthMiddleware(async (ctx) => {
+        if (ctx.path === "/email-otp/send-verification-otp") await checkBeforeCode(ctx.body);
+      }),
+    },
+    // A refused Google sign in comes back to the sign in page, with the reason in `error`.
+    onAPIError: { errorURL: `${getBetterAuthUrl()}/auth/signin` },
     trustedOrigins: getTrustedOrigins(),
     baseURL: {
       allowedHosts: [
