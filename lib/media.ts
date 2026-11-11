@@ -15,7 +15,7 @@ const UPLOADS_PER_MINUTE = 30;
 const MAX_CONCURRENT_UPLOADS = 4;
 
 export const MEDIA_ERRORS = {
-  notConfigured: 'Media storage is not configured',
+  notConfigured: 'Uploads are not set up on this server yet. Add the storage settings (see the API AGENTS.md) and try again.',
   noFile: 'Choose a file to upload.',
   empty: 'That file is empty.',
   tooLarge: 'Images can be up to 5 MB.',
@@ -34,6 +34,28 @@ export const MEDIA_PROMPT_RULE = '- Images whose src or CSS url() starts with /m
 export function mediaUrl(key: string): string {
   return `/media/${key}`;
 }
+
+/** Safe upload keys only (`projects/<id>/<uuid>.<ext>`), so the redirect can never point anywhere else. */
+const MEDIA_KEY = /^projects\/[A-Za-z0-9_-]+\/[A-Za-z0-9-]+\.[a-z0-9]{1,5}$/;
+
+/**
+ * The public bucket address for a key. `MEDIA_PUBLIC_URL` overrides it (a CDN or a virtual host
+ * address); otherwise it is the path style `<AWS_ENDPOINT_URL_S3>/<MEDIA_BUCKET>/<key>`.
+ */
+export function publicObjectUrl(key: string): string | null {
+  if (!MEDIA_KEY.test(key)) return null;
+  const base = process.env.MEDIA_PUBLIC_URL?.trim()
+    || `${(process.env.AWS_ENDPOINT_URL_S3 ?? '').trim().replace(/\/$/, '')}/${bucket()}`;
+  return `${base.replace(/\/$/, '')}/${key}`;
+}
+
+/** `GET /media/<key>`: Vercel (and Vite in dev) send `/media` here, and this redirects to the public file. */
+export const serveMedia: RequestHandler = (req, res) => {
+  const key = req.path.replace(/^\/media\//, '');
+  const target = isMediaConfigured() ? publicObjectUrl(key) : null;
+  if (!target) { res.status(404).type('text/plain').send('Not found'); return; }
+  res.set('Cache-Control', 'public, max-age=86400').redirect(302, target);
+};
 
 export function isMediaConfigured(): boolean {
   return ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_ENDPOINT_URL_S3', 'AWS_REGION', 'MEDIA_BUCKET']

@@ -169,6 +169,9 @@ const SVG_TAGS: ReadonlySet<string> = new Set(['svg', 'g', 'path', 'circle', 'el
 const SELECT_TAGS: ReadonlySet<string> = new Set(['option', 'optgroup']);
 const INLINE_ATTRS: ReadonlySet<string> = new Set(['class', 'id', 'lang', 'dir', 'href', 'target', 'rel', 'title', 'style']);
 const SELECT_ATTRS: ReadonlySet<string> = new Set(['value', 'label', 'selected', 'disabled']);
+/** Inline `a` only: a File link's `download`, and Page and Section links by id (spec 0015 AC-8, AC-10). */
+const INLINE_LINK_ATTRS: ReadonlySet<string> = new Set(['download', 'data-link-page', 'data-link-section']);
+const LINK_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const URL_ATTRS: ReadonlySet<string> = new Set(['href', 'src', 'xlink:href', 'action', 'formaction', 'poster']);
 const SAFE_SCHEMES: ReadonlySet<string> = new Set(['http', 'https', 'mailto', 'tel']);
 const NAMED_ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: '\'', nbsp: ' ', colon: ':', tab: '\t', newline: '\n' };
@@ -241,9 +244,11 @@ function markupAttrs(mode: MarkupMode, tag: string, raw: string): string {
   for (const match of raw.matchAll(ATTR_TOKEN)) {
     const name = match[1] as string;
     const lower = name.toLowerCase();
-    if (mode === 'inline' && !INLINE_ATTRS.has(lower) && !lower.startsWith('aria-')) continue;
+    const linkAttr = mode === 'inline' && tag === 'a' && INLINE_LINK_ATTRS.has(lower);
+    if (mode === 'inline' && !linkAttr && !INLINE_ATTRS.has(lower) && !lower.startsWith('aria-')) continue;
     if (mode === 'select' && !SELECT_ATTRS.has(lower)) continue;
     const value = decodeEntities(match[2] ?? match[3] ?? match[4] ?? '');
+    if (linkAttr && lower !== 'download' && !LINK_ID.test(value)) continue;
     if (mode === 'svg' && (lower === 'href' || lower === 'xlink:href') && !value.startsWith('#')) continue;
     const clean = cleanAttrValue(tag, name, value);
     if (clean !== null) out += ` ${name}="${escapeAttr(clean)}"`;
@@ -354,6 +359,50 @@ export interface RenderElementOptions {
   state: ExportState;
   /** Adds `data-editor-id`, for the editor canvas only. */
   editor: boolean;
+  /** Turns inline Page and Section links into hrefs outside the editor (spec 0015 AC-9). */
+  resolveLink?: InlineLinkResolver;
+}
+
+/** Hrefs for links stored by id inside a text block, or null when the target is gone. */
+export interface InlineLinkResolver {
+  pageHref(pageId: string): string | null;
+  sectionHref(pageId: string, targetId: string): string | null;
+}
+
+/** The same page and section rules as each exporter's `linkAttrs`, from its own maps. */
+export function inlineLinkResolver(pageSlugs: Map<string, string>, anchors: Map<string, { anchor: string; pageId: string }>): InlineLinkResolver {
+  return {
+    pageHref: pageId => { const slug = pageSlugs.get(pageId); return slug ? `#${slug}` : null; },
+    sectionHref: (pageId, targetId) => { const target = anchors.get(targetId); return target && target.pageId === pageId ? `#${target.anchor}` : null; },
+  };
+}
+
+const LINK_TAG = /<a(\s[^>]*)?>|<\/a>/gi;
+const MARKUP_ATTR = /\s([^\s=]+)="([^"]*)"/g;
+
+/**
+ * Cleaned inline markup with every `data-link-*` link resolved: the id wins over any `href`,
+ * the `data-link-*` attributes go, and a link whose target is gone is unwrapped to its text.
+ */
+export function resolveInlineLinks(html: string, resolve: InlineLinkResolver): string {
+  if (!html.includes('data-link-')) return html;
+  const unwrapped: boolean[] = [];
+  return html.replace(LINK_TAG, (tag: string, raw: string | undefined) => {
+    if (tag.charAt(1) === '/') return unwrapped.pop() ? '' : tag;
+    const attrs: [string, string][] = [];
+    for (const match of (raw ?? '').matchAll(MARKUP_ATTR)) attrs.push([match[1] as string, match[2] as string]);
+    const page = attrs.find(([name]) => name.toLowerCase() === 'data-link-page')?.[1];
+    const section = attrs.find(([name]) => name.toLowerCase() === 'data-link-section')?.[1];
+    if (page === undefined && section === undefined) {
+      unwrapped.push(false);
+      return tag;
+    }
+    const href = section !== undefined ? (page ? resolve.sectionHref(page, section) : null) : resolve.pageHref(page as string);
+    unwrapped.push(href === null);
+    if (href === null) return '';
+    const kept = attrs.filter(([name]) => !/^(href|data-link-page|data-link-section)$/i.test(name));
+    return `<a href="${escapeAttr(href)}"${kept.map(([name, value]) => ` ${name}="${value}"`).join('')}>`;
+  });
 }
 
 export function renderElement(node: EditorComponent, options: RenderElementOptions): string {
@@ -374,7 +423,8 @@ export function renderElement(node: EditorComponent, options: RenderElementOptio
   }
   out += '>';
   if (VOID_TAGS.has(tag)) return out;
-  return `${out}${html ?? options.children}</${tag}>`;
+  const content = html !== undefined && !options.editor && options.resolveLink ? resolveInlineLinks(html, options.resolveLink) : html;
+  return `${out}${content ?? options.children}</${tag}>`;
 }
 
 /** The properties changed in the styles panel on this device, read from `device:property` entries. */

@@ -197,42 +197,6 @@ export const getUserProjects = async (req: Request, res: Response) => {
     }
 }
 
-export const togglePublish = async (req: Request, res: Response) => {
-    try {
-        const userid = req.userId;
-        if (!userid) {
-            return res.status(401).json({ error: 'Unauthorized' });
-        }
-
-        const { projectId } = req.params;
-        // FIX (TS2412): Extract as plain string before passing to Prisma where clause
-        const projectIdStr = typeof projectId === 'string' ? projectId : String(projectId ?? '');
-
-        const project = await prisma.websiteProject.findFirst({
-            where: { id: projectIdStr, userId: userid },
-        });
-
-        if (!project) {
-            return res.status(404).json({ error: 'Project not found' });
-        }
-
-        const updatedProject = await prisma.websiteProject.update({
-            where: { id: projectIdStr },
-            data: { isPublished: !project.isPublished },
-        });
-
-        res.json({
-            message: updatedProject.isPublished
-                ? 'Project published successfully'
-                : 'Project unpublished successfully'
-        });
-
-    } catch (error: any) {
-        console.error('Toggle publish error:', error);
-        res.status(500).json({ message: error.code || error.message });
-    }
-};
-
 export const purchaseCredit = async (req: Request, res: Response) => {
     res.status(501).json({ error: 'Payment processing is not yet implemented.' });
 }

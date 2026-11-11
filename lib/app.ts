@@ -8,6 +8,7 @@ import projectRoutes from "../routes/ProjectRoutes.js";
 import editingRoutes from "../routes/editingRoutes.js";
 import websiteRoutes from "../routes/websiteRoutes.js";
 import { aiTestGet, aiTestPost } from "../controller/aiTestController.js";
+import { serveMedia } from "./media.js";
 
 const app = express();
 const trustedOrigins = getTrustedOrigins();
@@ -37,6 +38,9 @@ app.get("/", (_req, res) => {
     env: getEnvStatus(),
   });
 });
+
+// Uploaded files (scope feature 13): a redirect to the public bucket, so the frontend needs no storage host.
+app.get("/media/*splat", serveMedia);
 
 app.get("/api/health", (_req, res) => {
   const env = getEnvStatus();

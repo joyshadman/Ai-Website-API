@@ -85,24 +85,6 @@ export const saveEditorPage = async (req: Request, res: Response) => {
   }
 };
 
-export const publishEditorPage = async (req: Request, res: Response) => {
-  const { projectId } = req.params;
-  const userid = req.userId as string;
-  try {
-    const project = await prisma.websiteProject.findFirst({
-      where: { id: String(projectId ?? ''), userId: userid }
-    });
-    if (!project) return res.status(404).json({ error: 'Project not found' });
-    const updated = await prisma.websiteProject.update({
-      where: { id: project.id },
-      data: { isPublished: !project.isPublished }
-    });
-    res.json({ isPublished: updated.isPublished });
-  } catch (error: any) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
 export const getEditorHistory = async (req: Request, res: Response) => {
   const { projectId } = req.params;
   try {

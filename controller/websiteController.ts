@@ -160,6 +160,7 @@ export const getEditorWebsite = async (req: Request, res: Response) => {
     res.json({
       websiteId: project.id,
       name: project.name,
+      isPublished: project.isPublished,
       pages,
       globalStyles,
       // Only a site that could not be imported needs its HTML here, for the read only view (spec 0013 AC-12).

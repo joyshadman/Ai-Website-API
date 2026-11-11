@@ -6,7 +6,7 @@ import {
 } from './links.js';
 import { readElementRules, resolveStylesheets, usesTailwind } from './cssResolve.js';
 import { directionFromHtml } from './designChecks.js';
-import { INLINE_TAGS, LIMITS, cleanClassName, cleanFavicon, cleanNode, elementAttrs, isFontLink, keepDirection, keepFavicon, renderElement, siteDocument, type ExportState, type SiteStyles } from './siteStyles.js';
+import { INLINE_TAGS, LIMITS, cleanClassName, cleanFavicon, cleanNode, elementAttrs, inlineLinkResolver, isFontLink, keepDirection, keepFavicon, renderElement, siteDocument, type ExportState, type SiteStyles } from './siteStyles.js';
 import { animationFromElement, type ElementAnimation } from './animations.js';
 import { LOGO_ATTR, logoFromHtml, logoMarkup } from './logo.js';
 
@@ -937,6 +937,7 @@ export function toPages(pageData: any): Page[] {
  */
 export function componentsToHtml(pages: Page[], site: SiteStyles = {}): string {
   const ctx = buildRenderCtx(pages, 'desktop');
+  const resolveLink = inlineLinkResolver(ctx.pageSlugs, ctx.anchors);
   const CTA_STYLE = 'display:inline-block;padding:12px 24px;background:#7c3aed;color:#fff;border-radius:8px;text-decoration:none';
   const state: ExportState = { styled: [], animated: false };
   // Every copy of the logo gets its own id prefix (spec 0008).
@@ -953,7 +954,7 @@ export function componentsToHtml(pages: Page[], site: SiteStyles = {}): string {
     // Real elements keep their real spacing, so nothing is added between their children.
     const childrenHtml = (comp.children || []).filter(c => !c.hidden).map(c => renderOne(c, inLink)).join(comp.type === 'element' ? '' : '\n');
     if (comp.type === 'element') {
-      return renderElement(comp, { link: ownLink, children: childrenHtml, anchor: ctx.anchors.get(comp.id)?.anchor, state, editor: false });
+      return renderElement(comp, { link: ownLink, children: childrenHtml, anchor: ctx.anchors.get(comp.id)?.anchor, state, editor: false, resolveLink });
     }
     const propsStr = Object.entries(comp.props)
       .filter(([, v]) => v && typeof v !== 'object')
