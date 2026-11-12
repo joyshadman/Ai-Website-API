@@ -21,6 +21,17 @@ export const protect = async (req: Request, res: Response, next: NextFunction) =
         next();
     } catch (error: any) {
         console.error('Authentication error:', error);
-        res.status(401).json({ message: error.code || error.message });
+        res.status(401).json({ error: 'Please sign in to continue.' }); // spec 0033 AC-6: no internals
     }
+};
+
+/** Like `protect`, but never refuses: sets `req.userId` when a session exists, so a public route can recognise the owner. */
+export const identify = async (req: Request, _res: Response, next: NextFunction) => {
+    try {
+        const session = await getAuth()?.api.getSession({ headers: fromNodeHeaders(req.headers) });
+        if (session?.user) req.userId = session.user.id;
+    } catch {
+        // No usable session: carry on as an anonymous visitor.
+    }
+    next();
 };

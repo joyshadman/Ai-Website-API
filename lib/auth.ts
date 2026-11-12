@@ -6,6 +6,7 @@ import nodemailer from "nodemailer";
 import { getTrustedOrigins, PRODUCTION_FRONTEND } from "./cors.js";
 import { getBetterAuthSecret, getBetterAuthUrl, isProduction } from "./env.js";
 import { authPrisma, checkBeforeCode, checkNewUser, countNewUser } from "./signupGuard.js";
+import { deleteMediaKeys } from "./media.js";
 
 const googleClientId = process.env.GOOGLE_CLIENT_ID?.trim();
 const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim();
@@ -98,7 +99,18 @@ export function getAuth(): AuthInstance | null {
       skipStateCookieCheck: isProd,
     },
     user: {
-      deleteUser: { enabled: true },
+      deleteUser: {
+        enabled: true,
+        // Projects don't cascade from the user (schema.prisma), so remove them first, with their uploads
+        // in storage; versions, messages, and asset rows cascade from each project (spec 0035).
+        beforeDelete: async (user) => {
+          const projects = await authPrisma.websiteProject.findMany({ where: { userId: user.id }, select: { id: true } });
+          const ids = projects.map(p => p.id);
+          const assets = ids.length ? await authPrisma.asset.findMany({ where: { projectId: { in: ids } }, select: { key: true } }) : [];
+          await authPrisma.websiteProject.deleteMany({ where: { userId: user.id } });
+          await deleteMediaKeys(assets.map(a => a.key), `delete account ${user.id}`);
+        },
+      },
       additionalFields: {
         normalizedEmail: { type: "string", required: false, input: false, returned: false },
       },
@@ -121,7 +133,8 @@ export function getAuth(): AuthInstance | null {
     onAPIError: { errorURL: `${getBetterAuthUrl()}/auth/signin` },
     trustedOrigins: getTrustedOrigins(),
     baseURL: {
-      allowedHosts: [
+      // Local hosts only outside production (spec 0034).
+      allowedHosts: isProd ? ["ai-website-henna-eight.vercel.app", new URL(PRODUCTION_FRONTEND).host] : [
         "localhost:5173",
         "localhost:5174",
         "localhost:3000",
@@ -135,6 +148,16 @@ export function getAuth(): AuthInstance | null {
       fallback: PRODUCTION_FRONTEND,
     },
     secret: getBetterAuthSecret(),
+    // Sign in limits (spec 0033 AC-4), kept in this process's memory like the API's own limiter.
+    rateLimit: {
+      enabled: true,
+      window: 60,
+      max: 30,
+      customRules: {
+        "/email-otp/send-verification-otp": { window: 60, max: 3 },
+        "/sign-in/*": { window: 60, max: 10 },
+      },
+    },
     advanced: {
       trustedProxyHeaders: true,
       defaultCookieAttributes: {

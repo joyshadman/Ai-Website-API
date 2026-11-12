@@ -2,6 +2,8 @@ import { type Request, type Response } from "express";
 import prisma from '../lib/prisma.js';
 import { htmlToPageData, componentsToHtml, toPages } from '../lib/htmlToSchema.js';
 import { cleanPageNodes, mergeSiteStyles } from '../lib/siteStyles.js';
+import { applyEmbedRules, mergeSiteStylesForSave, SaveRuleError } from '../lib/saveRules.js';
+import { serverError } from '../lib/http.js';
 
 /** Rebuild from HTML only when there are no pages yet, so saved pages and `globalStyles` survive (spec 0003 AC-10). */
 const hasNoPages = (pageData: any) => toPages(pageData).every(p => !p.components?.length);
@@ -25,7 +27,7 @@ export const getAvailableTools = async (_req: Request, res: Response) => {
       }
     });
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    serverError(res, error, 'editingController');
   }
 };
 
@@ -52,7 +54,7 @@ export const getEditorPage = async (req: Request, res: Response) => {
 
     res.json({ project: { ...project, pageData } });
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    serverError(res, error, 'editingController');
   }
 };
 
@@ -60,6 +62,7 @@ export const saveEditorPage = async (req: Request, res: Response) => {
   const { projectId } = req.params;
   const userid = req.userId as string;
   const { pageData, name } = req.body;
+  let removed: string[] = [];
   try {
     const data: any = {};
     if (pageData !== undefined) {
@@ -69,8 +72,10 @@ export const saveEditorPage = async (req: Request, res: Response) => {
       try { stored = JSON.parse((project as any).pageData || '{}'); } catch { stored = {}; }
       // Pages publish as one document; a legacy { components } body maps to one page.
       if (stored.globalStyles?.importFailed) return res.status(409).json({ error: 'not_editable' });
-      const pages = cleanPageNodes(toPages(pageData));
-      const globalStyles = mergeSiteStyles(stored.globalStyles, pageData?.globalStyles);
+      const checked = applyEmbedRules(cleanPageNodes(toPages(pageData)));
+      const pages = checked.pages;
+      removed = checked.removed;
+      const globalStyles = mergeSiteStylesForSave(stored.globalStyles, pageData?.globalStyles);
       data.pageData = JSON.stringify({ pages, globalStyles });
       data.current_code = componentsToHtml(pages, globalStyles);
     }
@@ -79,15 +84,22 @@ export const saveEditorPage = async (req: Request, res: Response) => {
       where: { id: String(projectId ?? ''), userId: userid },
       data
     });
-    res.json({ project });
+    res.json({ project, removed });
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    if (error instanceof SaveRuleError) return res.status(error.status).json({ error: error.message });
+    serverError(res, error, 'editingController');
   }
 };
 
 export const getEditorHistory = async (req: Request, res: Response) => {
   const { projectId } = req.params;
   try {
+    // Owners only (spec 0033 AC-5): versions hold the site's full code.
+    const owned = await prisma.websiteProject.findFirst({
+      where: { id: String(projectId ?? ''), userId: req.userId as string },
+      select: { id: true },
+    });
+    if (!owned) return res.status(404).json({ error: 'Project not found' });
     const versions = await prisma.version.findMany({
       where: { projectId: String(projectId ?? '') },
       orderBy: { timestamp: 'desc' },
@@ -95,7 +107,7 @@ export const getEditorHistory = async (req: Request, res: Response) => {
     });
     res.json({ versions });
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    serverError(res, error, 'editingController');
   }
 };
 
@@ -116,6 +128,6 @@ export const getEditorPagePublic = async (req: Request, res: Response) => {
 
     res.json({ project: { id: project.id, name: project.name, pageData } });
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    serverError(res, error, 'editingController');
   }
 };

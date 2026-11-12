@@ -15,6 +15,7 @@ import { PLAIN_CSS_RULES } from '../lib/plainCssPrompt.js';
 import { DESIGN_RULES } from '../lib/designPrompt.js';
 import { DAILY_LIMIT_MESSAGE, isAtDailyLimit } from '../lib/aiCapacity.js';
 import { CHARGE_REFUSALS, chargeRefusal, msUntilNextRefill, refillCredits, REFILL_TO } from '../lib/credits.js';
+import { serverError } from '../lib/http.js';
 
 // Single AI request per action: the prompt itself tells the model to expand a
 // brief request into a full site, so there is no separate enhance round trip.
@@ -48,7 +49,7 @@ export const getUserCredit = async (req: Request, res: Response) => {
         res.json({ credits: user?.credits ?? 0, refillTo: REFILL_TO, refillInMs: msUntilNextRefill() });
     } catch (error: any) {
         console.error('Get credit error:', error);
-        res.status(500).json({ message: error.code || error.message });
+        serverError(res, error, 'userController');
     }
 }
 
@@ -129,7 +130,7 @@ export const createUserProject = async (req: Request, res: Response) => {
         console.error('Project creation error:', error);
 
         if (!res.headersSent) {
-            res.status(500).json({ message: error.message || 'Failed to create project' });
+            serverError(res, error, 'userController');
         }
     }
 }
@@ -171,7 +172,7 @@ export const getUserProject = async (req: Request, res: Response) => {
 
     } catch (error: any) {
         console.error('Get project error:', error);
-        res.status(500).json({ message: error.code || error.message });
+        serverError(res, error, 'userController');
     }
 }
 
@@ -193,7 +194,7 @@ export const getUserProjects = async (req: Request, res: Response) => {
 
     } catch (error: any) {
         console.error('Get projects error:', error);
-        res.status(500).json({ message: error.code || error.message });
+        serverError(res, error, 'userController');
     }
 }
 

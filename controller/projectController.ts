@@ -26,6 +26,8 @@ import {
 } from '../lib/generationJobs.js';
 import { DAILY_LIMIT_MESSAGE, isAtDailyLimit } from '../lib/aiCapacity.js';
 import { applyScopedReply, planScopedEdit, scopedUserMessage, type ScopedPlan } from '../lib/scopedEdit.js';
+import { checkUrl, safeFetchText } from '../lib/safeFetch.js';
+import { serverError } from '../lib/http.js';
 
 const MAX_REFERENCE_URLS = 2;
 const MAX_REFERENCE_CHARS = 2000;
@@ -38,24 +40,30 @@ function extractUrls(text: string): string[] {
     return [...new Set(text.match(urlRegex) ?? [])];
 }
 
-/** Fetch a URL and return its text content (stripped of scripts/styles/tags) */
+/** Fetch a URL safely (spec 0030) and return its text content (stripped of scripts/styles/tags) */
 async function fetchUrlContent(url: string): Promise<string> {
-    try {
-        const res = await fetch(url, {
-            headers: { 'User-Agent': 'Mozilla/5.0' },
-            signal: AbortSignal.timeout(8000),
-        });
-        const html = await res.text();
-        return html
-            .replace(/<script[\s\S]*?<\/script>/gi, '')
-            .replace(/<style[\s\S]*?<\/style>/gi, '')
-            .replace(/<[^>]+>/g, ' ')
-            .replace(/\s{2,}/g, ' ')
-            .trim()
-            .slice(0, MAX_REFERENCE_CHARS);
-    } catch {
+    const result = await safeFetchText(url);
+    if (!result.ok) {
+        // AC-4: drop the reference, log the reason only (never the body).
+        console.warn(`[reference] skipped ${url}: ${result.reason}`);
         return '';
     }
+    return result.text
+        .replace(/<script[\s\S]*?<\/script>/gi, '')
+        .replace(/<style[\s\S]*?<\/style>/gi, '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s{2,}/g, ' ')
+        .trim()
+        .slice(0, MAX_REFERENCE_CHARS);
+}
+
+/** The first refused reference URL in a message, checked before anything is charged (spec 0030 AC-3). */
+async function refusedReference(message: string): Promise<string | null> {
+    for (const url of extractUrls(message).slice(0, MAX_REFERENCE_URLS)) {
+        const check = await checkUrl(url);
+        if (!check.ok) return `Apexium can't open ${url}: ${check.reason}. Use the address of a public website.`;
+    }
+    return null;
 }
 
 /** Build an optional reference block from any URLs found in the message */
@@ -196,6 +204,10 @@ async function startEditRun(req: Request, res: Response, versionDescription: (me
             return res.status(503).json({ error: DAILY_LIMIT_MESSAGE });
         }
 
+        // Unsafe reference addresses are refused here, before anything is reserved or charged (spec 0030).
+        const refused = await refusedReference(message);
+        if (refused) return res.status(400).json({ error: refused });
+
         await refillCredits(userid);
 
         const reserved = reserveJob(projectIdStr, userid, 'edit', versionDescription(message));
@@ -263,7 +275,7 @@ Modify the existing website code according to the request while keeping it fully
         if (job) await finalize(job, 'failed');
         console.error('Start edit error:', error);
         if (!res.headersSent) {
-            res.status(500).json({ message: error.code || error.message });
+            serverError(res, error, 'projectController');
         }
     }
 }
@@ -320,7 +332,7 @@ export const getGenerationProgress = async (req: Request, res: Response) => {
         res.json({ status: 'idle', runId, html: '', offset: 0, outcome });
     } catch (error: any) {
         console.error('Generation progress error:', error);
-        res.status(500).json({ message: error.code || error.message });
+        serverError(res, error, 'projectController');
     }
 };
 
@@ -351,7 +363,7 @@ export const stopGeneration = async (req: Request, res: Response) => {
         res.status(202).json({ message: 'Stopping generation' });
     } catch (error: any) {
         console.error('Stop generation error:', error);
-        res.status(500).json({ message: error.code || error.message });
+        serverError(res, error, 'projectController');
     }
 };
 
@@ -407,7 +419,7 @@ export const rollbackToVersion = async (req: Request, res: Response) => {
         res.json({ message: 'Rollback successful' });
     } catch (error: any) {
         console.log(error.code || error.message);
-        res.status(500).json({ message: error.message });
+        serverError(res, error, 'projectController');
     }
 };
 
@@ -445,7 +457,7 @@ export const deleteProject = async (req: Request, res: Response) => {
         res.json({ message: 'Project deleted successfully' });
     } catch (error: any) {
         console.error('Delete project error:', error);
-        res.status(500).json({ message: error.message });
+        serverError(res, error, 'projectController');
     }
 };
 
@@ -472,23 +484,42 @@ export const getProjectPreview = async (req: Request, res: Response) => {
         res.json({ project });
     } catch (error: any) {
         console.log(error.code || error.message);
-        res.status(500).json({ message: error.message });
+        serverError(res, error, 'projectController');
     }
 };
 
 // Controller for getting published projects
+/**
+ * The community gallery (spec 0026): published projects only, one page at a time, and never an
+ * email or user id. Query: q (name contains), sort (new | old), cursor (project id), limit (<= 48).
+ */
 export const getPublishedProjects = async (req: Request, res: Response) => {
     try {
-        const projects = await prisma.websiteProject.findMany({
-            where: { isPublished: true },
-            include: { user: { select: { name: true, email: true } } },
-            orderBy: { updatedAt: 'desc' },
+        const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 100) : '';
+        const sort = req.query.sort === 'old' ? 'asc' : 'desc';
+        const cursor = typeof req.query.cursor === 'string' && req.query.cursor ? req.query.cursor : undefined;
+        const limitRaw = Number.parseInt(String(req.query.limit ?? ''), 10);
+        const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 48) : 24;
+
+        const rows = await prisma.websiteProject.findMany({
+            where: { isPublished: true, ...(q ? { name: { contains: q, mode: 'insensitive' as const } } : {}) },
+            select: { id: true, name: true, updatedAt: true, current_code: true, user: { select: { name: true } } },
+            orderBy: [{ updatedAt: sort }, { id: sort }],
+            take: limit,
+            ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
         });
 
-        res.json({ projects });
+        const projects = rows.map(p => ({
+            id: p.id,
+            name: p.name,
+            updatedAt: p.updatedAt,
+            author: p.user?.name?.trim().split(/\s+/)[0] || 'Apexium user',
+            code: p.current_code ?? '',
+        }));
+        res.json({ projects, nextCursor: rows.length === limit ? rows.at(-1)?.id ?? null : null });
     } catch (error: any) {
         console.log(error.code || error.message);
-        res.status(500).json({ message: error.message });
+        res.status(500).json({ error: "Couldn't load the gallery. Try again." });
     }
 };
 
@@ -502,17 +533,20 @@ export const getProjectById = async (req: Request, res: Response) => {
             where: { id: projectIdStr },
         });
 
-        if (!project || project.isPublished === false || !project.current_code) {
+        // Published sites are public. An unpublished one is shown only to its owner (`identify` sets req.userId),
+        // in this same response, so the owner's preview needs no failing request before a fallback.
+        const isDraft = project?.isPublished === false;
+        if (!project || !project.current_code || (isDraft && (!req.userId || project.userId !== req.userId))) {
             return res.status(404).json({ error: 'Project not found' });
         }
 
         // The public view sets the visitor's tab icon from this (spec 0006 AC-3).
         let favicon = '';
         try { favicon = cleanFavicon(JSON.parse(project.pageData || '{}')?.globalStyles?.favicon) ?? ''; } catch { /* no stored styles */ }
-        res.json({ code: project.current_code, favicon });
+        res.json({ code: project.current_code, favicon, isDraft });
     } catch (error: any) {
         console.log(error.code || error.message);
-        res.status(500).json({ message: error.message });
+        serverError(res, error, 'projectController');
     }
 };
 
@@ -553,7 +587,7 @@ export const saveProjectCode = async (req: Request, res: Response) => {
         res.json({ message: 'Project code saved successfully' });
     } catch (error: any) {
         console.log(error.code || error.message);
-        res.status(500).json({ message: error.message });
+        serverError(res, error, 'projectController');
     }
 };
 
@@ -584,7 +618,7 @@ export const toggleSaveMessage = async (req: Request, res: Response) => {
         res.json({ isSaved: updated.isSaved });
     } catch (error: any) {
         console.error('Toggle save message error:', error);
-        res.status(500).json({ message: error.code || error.message });
+        serverError(res, error, 'projectController');
     }
 };
 
@@ -612,6 +646,6 @@ export const getSavedMessages = async (req: Request, res: Response) => {
         res.json({ saved });
     } catch (error: any) {
         console.error('Get saved messages error:', error);
-        res.status(500).json({ message: error.code || error.message });
+        serverError(res, error, 'projectController');
     }
 };

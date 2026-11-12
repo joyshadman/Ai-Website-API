@@ -3,6 +3,8 @@ import prisma from '../lib/prisma.js';
 import { componentsToHtml, htmlToPageData, toPages } from '../lib/htmlToSchema.js';
 import { cleanPageNodes, mergeSiteStyles } from '../lib/siteStyles.js';
 import { deleteMediaKeys } from '../lib/media.js';
+import { applyEmbedRules, mergeSiteStylesForSave, SaveRuleError } from '../lib/saveRules.js';
+import { serverError } from '../lib/http.js';
 
 export const getWebsite = async (req: Request, res: Response) => {
   const { id } = req.params;
@@ -23,7 +25,7 @@ export const getWebsite = async (req: Request, res: Response) => {
       globalStyles: pageData.globalStyles || {}
     });
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    serverError(res, error, 'websiteController');
   }
 };
 
@@ -31,6 +33,7 @@ export const updateWebsite = async (req: Request, res: Response) => {
   const { id } = req.params;
   const userId = req.userId as string;
   const { name, pageData, globalStyles } = req.body;
+  let removed: string[] = [];
   try {
     const project = await prisma.websiteProject.findFirst({
       where: { id: String(id ?? ''), userId }
@@ -58,9 +61,15 @@ export const updateWebsite = async (req: Request, res: Response) => {
       if (existing.globalStyles?.importFailed && incomingPages !== undefined) {
         return res.status(409).json({ error: 'not_editable' });
       }
+      let pages = incomingPages !== undefined ? (Array.isArray(incomingPages) ? cleanPageNodes(incomingPages) : incomingPages) : (existing.pages || []);
+      if (incomingPages !== undefined && Array.isArray(pages)) {
+        const checked = applyEmbedRules(pages); // spec 0031: size check and embed cleaning
+        pages = checked.pages;
+        removed = checked.removed;
+      }
       const merged = {
-        pages: incomingPages !== undefined ? (Array.isArray(incomingPages) ? cleanPageNodes(incomingPages) : incomingPages) : (existing.pages || []),
-        globalStyles: mergeSiteStyles(existing.globalStyles, incomingGlobalStyles)
+        pages,
+        globalStyles: mergeSiteStylesForSave(existing.globalStyles, incomingGlobalStyles)
       };
       data.pageData = JSON.stringify(merged);
 
@@ -83,10 +92,12 @@ export const updateWebsite = async (req: Request, res: Response) => {
       websiteId: updated.id,
       name: updated.name,
       pages: resultPageData.pages || [],
-      globalStyles: resultPageData.globalStyles || {}
+      globalStyles: resultPageData.globalStyles || {},
+      removed
     });
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    if (error instanceof SaveRuleError) return res.status(error.status).json({ error: error.message });
+    serverError(res, error, 'websiteController');
   }
 };
 
@@ -110,7 +121,7 @@ export const deleteWebsite = async (req: Request, res: Response) => {
 
     res.json({ message: 'Website deleted successfully' });
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    serverError(res, error, 'websiteController');
   }
 };
 
@@ -167,6 +178,6 @@ export const getEditorWebsite = async (req: Request, res: Response) => {
       ...(globalStyles.importFailed ? { current_code: (project as any).current_code } : {}),
     });
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    serverError(res, error, 'websiteController');
   }
 };

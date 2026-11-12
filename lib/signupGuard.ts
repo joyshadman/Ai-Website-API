@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 import type { BetterAuthOptions } from 'better-auth';
-import { APIError, getIp } from 'better-auth/api';
+import { APIError, getIP } from 'better-auth/api';
 import prisma from './prisma.js';
 
 // Checks on new accounts (spec 0014). They apply only when an account is being created, so
@@ -62,7 +62,7 @@ function ipCounts(): Map<string, number> {
 
 function ipFrom(ctx: HookContext): string | null {
     const source = ctx?.request ?? ctx?.headers;
-    return ctx && source ? getIp(source, ctx.context.options) : null;
+    return ctx && source ? getIP(source, ctx.context.options) : null;
 }
 
 /** Runs before an email code goes out, so a refused address is never emailed one. */
